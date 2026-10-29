@@ -1,0 +1,23 @@
+{
+  "$comment": "PostToolUse stdin as Antigravity documents it (https://antigravity.google/docs/hooks/, PostToolUse input: toolCall{name,args}, stepIdx, error, plus the common conversationId, workspacePaths, transcriptPath, artifactDirectoryPath, modelName), in the camelCase protojson of the sample in google-antigravity/antigravity-cli#1138 (CLI 1.2.14). Args per the docs' Supported tools table. Not a live capture: the values are ours, and {{workspace}}, {{brain}}, {{conversation}} are filled in by the test. Overwrite arrives as the string \"false\"/\"true\" (agy-auto HARNESS-BEHAVIORS.md, CLI 1.1.27).",
+  "stdin": {
+    "toolCall": {
+      "name": "write_to_file",
+      "args": {
+        "TargetFile": "{{workspace}}/src/new.ts",
+        "Overwrite": "false",
+        "CodeContent": "export const a = 1;\n",
+        "Description": "Add a constant"
+      }
+    },
+    "stepIdx": 19,
+    "error": "",
+    "conversationId": "{{conversation}}",
+    "workspacePaths": [
+      "{{workspace}}"
+    ],
+    "transcriptPath": "{{brain}}/transcript_full.jsonl",
+    "artifactDirectoryPath": "{{brain}}",
+    "modelName": "gemini-3-pro"
+  }
+}

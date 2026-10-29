@@ -1,0 +1,24 @@
+# Every text file is checked out with LF endings, on Windows too. Tests hold
+# files to each other byte for byte (the committed MCP launcher to the
+# installers' copy, among others), and a checkout with
+# core.autocrlf failed them for its line endings alone. The rules below say
+# why some folders need LF wherever they are checked out, and crew/ none.
+* text=auto eol=lf
+# crew/ is a byte-for-byte copy of a tagged crew release, pinned by sha256 in
+# crew/crew.lock.json. A checkout that converted its line endings (Windows with
+# core.autocrlf) would fail the lock test, and cli/sync-hooks.mjs, which runs on
+# every workspace install, would refuse to build the CLI package.
+crew/** -text
+# Any shell script has to reach Linux with LF endings, from a Windows checkout
+# or from git archive run there: bash reads a CR as part of the line.
+*.sh text eol=lf
+# cli/, and the hooks/, mcp/, clients/ and digest/ that cli/sync-hooks.mjs copies into
+# it, are what `npx agentmash` ships: a stranger's init commits those hooks
+# beside the ones the web installer commits from the server, so they reach
+# every platform with LF endings. 0.12.0 was packed from a Windows checkout
+# and shipped CRLF; the sync now refuses to pack a package that has any.
+cli/** text=auto eol=lf
+hooks/** text=auto eol=lf
+mcp/** text=auto eol=lf
+clients/** text=auto eol=lf
+digest/** text=auto eol=lf

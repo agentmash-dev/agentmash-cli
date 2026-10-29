@@ -1,0 +1,17 @@
+{
+  "name": "agentmash",
+  "private": true,
+  "version": "0.5.0",
+  "workspaces": [
+    "hooks",
+    "cli",
+    "mcp",
+    "digest"
+  ],
+  "scripts": {
+    "agentmash": "node cli/agentmash.mjs",
+    "pack:cli": "npm pack -w cli",
+    "digest": "node digest/agentmash-digest.mjs",
+    "test": "npm run test -w hooks && npm run test -w cli && npm run test -w mcp && npm run test -w digest && node --test clients/test/*.test.mjs"
+  }
+}

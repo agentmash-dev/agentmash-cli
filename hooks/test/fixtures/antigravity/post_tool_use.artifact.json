@@ -1,0 +1,24 @@
+{
+  "$comment": "PostToolUse stdin as Antigravity documents it (https://antigravity.google/docs/hooks/, PostToolUse input: toolCall{name,args}, stepIdx, error, plus the common conversationId, workspacePaths, transcriptPath, artifactDirectoryPath, modelName), in the camelCase protojson of the sample in google-antigravity/antigravity-cli#1138 (CLI 1.2.14). Args per the docs' Supported tools table. Not a live capture: the values are ours, and {{workspace}}, {{brain}}, {{conversation}} are filled in by the test. IsArtifact is write_to_file's optional flag for agy's own notes, written to artifactDirectoryPath (docs).",
+  "stdin": {
+    "toolCall": {
+      "name": "write_to_file",
+      "args": {
+        "TargetFile": "{{brain}}/task.md",
+        "Overwrite": "true",
+        "CodeContent": "- [ ] give the user a role\n",
+        "Description": "Task list",
+        "IsArtifact": true
+      }
+    },
+    "stepIdx": 19,
+    "error": "",
+    "conversationId": "{{conversation}}",
+    "workspacePaths": [
+      "{{workspace}}"
+    ],
+    "transcriptPath": "{{brain}}/transcript_full.jsonl",
+    "artifactDirectoryPath": "{{brain}}",
+    "modelName": "gemini-3-pro"
+  }
+}

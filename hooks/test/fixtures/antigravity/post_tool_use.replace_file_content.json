@@ -1,0 +1,27 @@
+{
+  "$comment": "PostToolUse stdin as Antigravity documents it (https://antigravity.google/docs/hooks/, PostToolUse input: toolCall{name,args}, stepIdx, error, plus the common conversationId, workspacePaths, transcriptPath, artifactDirectoryPath, modelName), in the camelCase protojson of the sample in google-antigravity/antigravity-cli#1138 (CLI 1.2.14). Args per the docs' Supported tools table. Not a live capture: the values are ours, and {{workspace}}, {{brain}}, {{conversation}} are filled in by the test.",
+  "stdin": {
+    "toolCall": {
+      "name": "replace_file_content",
+      "args": {
+        "TargetFile": "{{workspace}}/src/models/user.ts",
+        "Instruction": "Give the user a role",
+        "Description": "Add a role to User",
+        "AllowMultiple": false,
+        "TargetContent": "id: string",
+        "ReplacementContent": "id: string;\n  role: string",
+        "StartLine": 1,
+        "EndLine": 1
+      }
+    },
+    "stepIdx": 19,
+    "error": "",
+    "conversationId": "{{conversation}}",
+    "workspacePaths": [
+      "{{workspace}}"
+    ],
+    "transcriptPath": "{{brain}}/transcript_full.jsonl",
+    "artifactDirectoryPath": "{{brain}}",
+    "modelName": "gemini-3-pro"
+  }
+}

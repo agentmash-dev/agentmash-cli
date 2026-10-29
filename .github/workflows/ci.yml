@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Read the code, nothing else. Pull requests from forks run here too, so this
+# workflow holds no secrets and runs only on GitHub's own runners.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - id: install
+        run: npm ci
+
+      # Each suite runs even when one before it failed, so one failure doesn't
+      # hide how the others did.
+      - name: hooks tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm test -w hooks
+
+      - name: cli tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm test -w cli
+
+      - name: mcp tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm test -w mcp
+
+      - name: digest tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm test -w digest
+
+      - name: clients tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: node --test clients/test/*.test.mjs
+

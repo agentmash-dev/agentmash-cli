@@ -1,0 +1,14 @@
+{
+  "version": "1.3.1",
+  "tag": "v1.3.1",
+  "repo": "agentmash-dev/agentmash-crew",
+  "commit": "2ae56e145be0e2fa2eba744296edbe8bcd5342a3",
+  "files": {
+    "README.md": "2ccc587612495243e4e6b3e3e8e667d66f9db6d105834d9522a5149c3a5516f3",
+    "bundle.json": "81bc7b1cbc20569442a7041f9322cc820577e478ac5fa1dd5b935d67b70991fb",
+    "catalog.json": "7554f9409c3bd722f0359f1ba8516e64f42be1e6ec585cfbc24f28d29be3396c",
+    "install.mjs": "cb8c260e9b819ca1973fe3f0d6b659f2727cd2c6315ce41d91bdef24a6ca0327",
+    "team-plan.d.mts": "9075bc89056777dabdcf161dcf31fe530ee533c4eae4cb68d336299593f5ba0d",
+    "team-plan.mjs": "f420bc1af16cb0cfd3e95a1f0a3489daa5393d178c2e8181e95d1792dcee85df"
+  }
+}

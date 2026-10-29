@@ -1,0 +1,21 @@
+{
+  "name": "agentmash-digest",
+  "version": "0.1.0",
+  "description": "Weekly digest and hot-zone map for an AgentMash room, posted to Slack or Telegram",
+  "type": "module",
+  "bin": {
+    "agentmash-digest": "./agentmash-digest.mjs"
+  },
+  "files": [
+    "agentmash-digest.mjs",
+    "src/"
+  ],
+  "scripts": {
+    "test": "node --test test/digest.test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["claude-code", "agents", "digest", "slack", "telegram"],
+  "license": "MIT"
+}

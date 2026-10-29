@@ -1,0 +1,27 @@
+{
+  "$comment": "PostToolUse stdin as Antigravity documents it (https://antigravity.google/docs/hooks/, PostToolUse input: toolCall{name,args}, stepIdx, error, plus the common conversationId, workspacePaths, transcriptPath, artifactDirectoryPath, modelName), in the camelCase protojson of the sample in google-antigravity/antigravity-cli#1138 (CLI 1.2.14). Args per the docs' Supported tools table. Not a live capture: the values are ours, and {{workspace}}, {{brain}}, {{conversation}} are filled in by the test. A non-empty error is a tool that failed (docs; #1138). The error text is ours.",
+  "stdin": {
+    "toolCall": {
+      "name": "replace_file_content",
+      "args": {
+        "TargetFile": "{{workspace}}/src/models/user.ts",
+        "Instruction": "x",
+        "Description": "x",
+        "AllowMultiple": false,
+        "TargetContent": "not in the file",
+        "ReplacementContent": "y",
+        "StartLine": 1,
+        "EndLine": 1
+      }
+    },
+    "stepIdx": 19,
+    "error": "target content not found in file",
+    "conversationId": "{{conversation}}",
+    "workspacePaths": [
+      "{{workspace}}"
+    ],
+    "transcriptPath": "{{brain}}/transcript_full.jsonl",
+    "artifactDirectoryPath": "{{brain}}",
+    "modelName": "gemini-3-pro"
+  }
+}

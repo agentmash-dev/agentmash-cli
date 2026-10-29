@@ -1,0 +1,66 @@
+{
+  "name": "agentmash",
+  "version": "0.13.5",
+  "description": "One app for your team’s AI coding agents: Claude Code, Codex, Cursor and more on your own logins, each told which files a teammate’s agent is changing",
+  "keywords": [
+    "claude-code",
+    "claude",
+    "cursor",
+    "hooks",
+    "claude-code-hooks",
+    "mcp",
+    "coordination",
+    "agents",
+    "ai-agents",
+    "coding-agents",
+    "multi-agent",
+    "parallel-agents",
+    "merge-conflicts",
+    "worktree",
+    "team"
+  ],
+  "homepage": "https://agentmash.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agentmash-dev/agentmash-cli.git",
+    "directory": "cli"
+  },
+  "bugs": "https://github.com/agentmash-dev/agentmash-cli/issues",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "agentmash": "./agentmash.mjs"
+  },
+  "files": [
+    "agentmash.mjs",
+    "tools.mjs",
+    "agent-kit.mjs",
+    "token.mjs",
+    "inbox.mjs",
+    "scan.mjs",
+    "digest.mjs",
+    "visibility.mjs",
+    "hook.mjs",
+    "agents/",
+    "toml.mjs",
+    "hooks/",
+    "mcp/",
+    "clients/",
+    "crew/",
+    "digest/"
+  ],
+  "engines": {
+    "node": ">=18.12.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "sync-hooks": "node sync-hooks.mjs",
+    "prepare": "node sync-hooks.mjs",
+    "test": "node --import tsx --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "$comment": "PreToolUse stdin as Antigravity documents it (https://antigravity.google/docs/hooks/, PreToolUse input: toolCall{name,args}, stepIdx and the common fields), camelCase as captured by onkarbadve/agy-auto HARNESS-BEHAVIORS.md (CLI 1.1.27) and #1053 (CLI 1.2.7). Not a live capture: the values are ours. view_file's arguments are ASSUMED.",
+  "stdin": {
+    "toolCall": {
+      "name": "view_file",
+      "args": {
+        "AbsolutePath": "{{workspace}}/src/models/user.ts"
+      }
+    },
+    "stepIdx": 18,
+    "conversationId": "{{conversation}}",
+    "workspacePaths": [
+      "{{workspace}}"
+    ],
+    "transcriptPath": "{{brain}}/transcript_full.jsonl",
+    "artifactDirectoryPath": "{{brain}}",
+    "modelName": "gemini-3-pro"
+  }
+}

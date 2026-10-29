@@ -1,0 +1,20 @@
+node_modules/
+dist/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.claude/agentmash/config.json
+
+# build output of cli/sync-hooks.mjs, regenerated on prepack
+cli/hooks/
+cli/mcp/
+cli/clients/
+cli/crew/
+cli/digest/
+.gstack/

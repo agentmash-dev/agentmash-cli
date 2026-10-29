@@ -1,0 +1,38 @@
+{
+  "$comment": "PostToolUse stdin as Antigravity documents it (https://antigravity.google/docs/hooks/, PostToolUse input: toolCall{name,args}, stepIdx, error, plus the common conversationId, workspacePaths, transcriptPath, artifactDirectoryPath, modelName), in the camelCase protojson of the sample in google-antigravity/antigravity-cli#1138 (CLI 1.2.14). Args per the docs' Supported tools table. Not a live capture: the values are ours, and {{workspace}}, {{brain}}, {{conversation}} are filled in by the test. The docs do not name the fields of a ReplacementChunks element: these are ASSUMED to be replace_file_content's own.",
+  "stdin": {
+    "toolCall": {
+      "name": "multi_replace_file_content",
+      "args": {
+        "TargetFile": "{{workspace}}/src/models/user.ts",
+        "Instruction": "Rename and extend User",
+        "Description": "Two edits",
+        "ReplacementChunks": [
+          {
+            "AllowMultiple": false,
+            "TargetContent": "interface User",
+            "ReplacementContent": "interface Account",
+            "StartLine": 1,
+            "EndLine": 1
+          },
+          {
+            "AllowMultiple": false,
+            "TargetContent": "id: string",
+            "ReplacementContent": "id: string;\n  role: string",
+            "StartLine": 1,
+            "EndLine": 1
+          }
+        ]
+      }
+    },
+    "stepIdx": 19,
+    "error": "",
+    "conversationId": "{{conversation}}",
+    "workspacePaths": [
+      "{{workspace}}"
+    ],
+    "transcriptPath": "{{brain}}/transcript_full.jsonl",
+    "artifactDirectoryPath": "{{brain}}",
+    "modelName": "gemini-3-pro"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "$comment": "PostToolUse stdin as Antigravity documents it (https://antigravity.google/docs/hooks/, PostToolUse input: toolCall{name,args}, stepIdx, error, plus the common conversationId, workspacePaths, transcriptPath, artifactDirectoryPath, modelName), in the camelCase protojson of the sample in google-antigravity/antigravity-cli#1138 (CLI 1.2.14). Args per the docs' Supported tools table. Not a live capture: the values are ours, and {{workspace}}, {{brain}}, {{conversation}} are filled in by the test. view_file is a read (context-mode#1206, CLI 1.2.11, saw it reach a hook); its arguments are ASSUMED. Login's matcher never sends it.",
+  "stdin": {
+    "toolCall": {
+      "name": "view_file",
+      "args": {
+        "AbsolutePath": "{{workspace}}/src/models/user.ts"
+      }
+    },
+    "stepIdx": 19,
+    "error": "",
+    "conversationId": "{{conversation}}",
+    "workspacePaths": [
+      "{{workspace}}"
+    ],
+    "transcriptPath": "{{brain}}/transcript_full.jsonl",
+    "artifactDirectoryPath": "{{brain}}",
+    "modelName": "gemini-3-pro"
+  }
+}

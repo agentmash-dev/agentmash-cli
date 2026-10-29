@@ -1,0 +1,14 @@
+{
+  "$comment": "PreInvocation stdin as Antigravity documents it (https://antigravity.google/docs/hooks/, PreInvocation input: invocationNum, initialNumSteps and the common fields); invocationNum restarts at 0 each turn per symposium-dev/symposium md/design/agent-details/antigravity-cli.md (CLI 1.2.7). Not a live capture: the values are ours.",
+  "stdin": {
+    "invocationNum": 2,
+    "initialNumSteps": 3,
+    "conversationId": "{{conversation}}",
+    "workspacePaths": [
+      "{{workspace}}"
+    ],
+    "transcriptPath": "{{brain}}/transcript_full.jsonl",
+    "artifactDirectoryPath": "{{brain}}",
+    "modelName": "gemini-3-pro"
+  }
+}
