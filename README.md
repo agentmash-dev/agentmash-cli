@@ -1,3 +1,5 @@
+[![agentmash: multiplayer for your team's coding agents](.github/assets/hero.png)](https://agentmash.dev)
+
 # agentmash
 
 [![npm](https://img.shields.io/npm/v/agentmash?color=8BCFF0&label=npm)](https://www.npmjs.com/package/agentmash)
