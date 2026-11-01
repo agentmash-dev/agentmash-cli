@@ -19,7 +19,8 @@ npx agentmash login
 ```
 
 That signs the machine in with GitHub and connects every coding agent it finds. Restart your
-agent and you're done. Free for 2 developers on [agentmash.dev](https://agentmash.dev).
+agent and you're done. In Codex, also open `/hooks` and approve agentmash: Codex runs no hook
+you haven't approved. Free for 2 developers on [agentmash.dev](https://agentmash.dev).
 
 ## What your agent sees
 
