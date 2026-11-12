@@ -11,7 +11,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { kiloPlugin } from '../../cli/agents/kilo.mjs';
@@ -34,6 +33,7 @@ import {
 } from './fixtures/kilo/tool-execute.mjs';
 import { chatMessage } from './fixtures/kilo/chat-message.mjs';
 import { childCreated, sessionCreated, sessionDeleted, sessionIdle } from './fixtures/kilo/events.mjs';
+import { tempDir } from './tmp.mjs';
 
 /** deny-once's answer when it lets a call go on: no opinion, which is never an approval of what the person would be asked about. */
 const GO_ON = '{}\n';
@@ -54,7 +54,7 @@ process.env.PATH = [path.dirname(process.execPath), process.env.PATH].join(path.
  * it as CommonJS, where Kilo runs it under Bun.
  */
 async function plugin(m, { dir = HOOKS_DIR } = {}) {
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-kilo-plugin-'));
+  const folder = tempDir('agentmash-kilo-plugin-');
   const file = path.join(folder, 'agentmash.mjs');
   fs.writeFileSync(file, kiloPlugin(dir));
   Object.assign(process.env, m.env);
@@ -330,14 +330,14 @@ test('nothing that goes wrong refuses an edit or rejects a hook: no room, no hoo
 
   // a hook that says what is not its answer, or a refusal with no reason: go on
   for (const script of ['console.log("not json");\n', 'console.log(JSON.stringify({ decision: "deny" }));\n', 'process.exit(3);\n']) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-kilo-hooks-'));
+    const dir = tempDir('agentmash-kilo-hooks-');
     fs.writeFileSync(path.join(dir, 'agent_hook.mjs'), script);
     const odd = await plugin(m, { dir });
     await odd['tool.execute.before'](input, output);
   }
 
   // Kilo waits on a plugin with no deadline of its own: a hook that never answers is let go after WAIT_MS
-  const hung = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-kilo-hooks-'));
+  const hung = tempDir('agentmash-kilo-hooks-');
   fs.writeFileSync(path.join(hung, 'agent_hook.mjs'), 'setInterval(() => {}, 1000);\n');
   const stuck = await plugin(m, { dir: hung });
   started = Date.now();

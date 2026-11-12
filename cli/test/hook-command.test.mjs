@@ -18,6 +18,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { agentHookCommand } from '../agent-kit.mjs';
 import { HOOK_EVENTS, parseHookArgs } from '../hook.mjs';
+import { tempDir } from './fixtures/tmp.mjs';
 
 const CLI_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const REPO = path.dirname(CLI_DIR);
@@ -31,7 +32,7 @@ const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !
 const strip = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
 
 function home() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-hook-cmd-')));
+  const dir = fs.realpathSync(tempDir('agentmash-hook-cmd-'));
   return { dir, hooks: path.join(dir, '.agentmash', 'hooks') };
 }
 

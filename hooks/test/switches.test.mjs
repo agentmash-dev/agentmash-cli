@@ -9,10 +9,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { eventsOf, machine, runHook, session, startServer } from './fixtures.mjs';
 import * as lib from '../lib.mjs';
+import { tempDir } from './tmp.mjs';
 
 const ON = ['1', 'true', 'on', 'yes', 'TRUE', 'On', ' yes '];
 const OFF = ['0', 'false', 'off', 'no', 'FALSE', 'Off', ' no '];
@@ -26,7 +26,7 @@ test('a switch reads 1, true, on and yes as on, 0, false, off and no as off, and
 
 /** loadConfig for a checkout whose .env holds `lines`, and maybe a committed config. */
 function configWith(lines, committed = {}) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-switches-')));
+  const dir = fs.realpathSync(tempDir('agentmash-switches-'));
   fs.writeFileSync(path.join(dir, '.env'), lines.join('\n') + '\n');
   fs.mkdirSync(path.join(dir, '.claude', 'agentmash'), { recursive: true });
   fs.writeFileSync(path.join(dir, '.claude', 'agentmash', 'config.json'), JSON.stringify({ url: 'http://127.0.0.1:1', room: 'mash_x', ...committed }));

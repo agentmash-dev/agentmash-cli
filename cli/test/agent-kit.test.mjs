@@ -12,9 +12,10 @@ import path from 'node:path';
 import { BEFORE, holdsSignIn, removeFile, shown, writeFileSafely } from '../agent-kit.mjs';
 import { AGENTS } from '../tools.mjs';
 import { CLEARED, machine, run, startServer } from './fixtures/machine.mjs';
+import { tempDir } from './fixtures/tmp.mjs';
 
 const POSIX = { skip: process.platform === 'win32' ? 'POSIX modes and symlinks' : false };
-const folder = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kit-')));
+const folder = () => fs.realpathSync(tempDir('kit-'));
 const read = (file) => fs.readFileSync(file, 'utf8');
 const mode = (file) => fs.statSync(file).mode & 0o777;
 

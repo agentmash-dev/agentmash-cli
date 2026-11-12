@@ -15,6 +15,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { AGENTS } from '../../tools.mjs';
+import { tempDir } from './tmp.mjs';
 
 export const CLI_DIR = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 export const CLI = path.join(CLI_DIR, 'agentmash.mjs');
@@ -108,7 +109,7 @@ export const STAND_INS = {
  * `scripts` says for it (nothing, for a name it does not have).
  */
 export function standIns(home, names, scripts = STAND_INS) {
-  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-tools-bin-'));
+  const bin = tempDir('agentmash-tools-bin-');
   const log = path.join(home, 'calls.log');
   for (const name of names) {
     command(
@@ -156,7 +157,7 @@ export const THEIRS = {
  * own, beside STAND_INS).
  */
 export function machine({ with: names = ['codex', 'code'], codex = true, cursor = true, copilot = true, scripts = {} } = {}) {
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-tools-home-')));
+  const home = fs.realpathSync(tempDir('agentmash-tools-home-'));
   fs.mkdirSync(path.join(home, '.claude'));
   fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ model: 'opus' }));
   if (codex) {

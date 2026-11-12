@@ -1,6 +1,6 @@
 {
   "name": "agentmash",
-  "version": "0.13.5",
+  "version": "0.14.0",
   "description": "One app for your team’s AI coding agents: Claude Code, Codex, Cursor and more on your own logins, each told which files a teammate’s agent is changing",
   "keywords": [
     "claude-code",

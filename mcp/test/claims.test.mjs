@@ -4,7 +4,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +12,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 import { ownerCheckFile } from '../../hooks/lib.mjs';
+import { tempDir } from './tmp.mjs';
 
 const MCP_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SERVER = path.join(MCP_DIR, 'server.mjs');
@@ -29,10 +29,10 @@ const baseEnv = Object.fromEntries(
 );
 
 /** A Claude Code config folder with no session files in it. */
-const noClaudeSessions = () => fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-mcp-claude-'));
+const noClaudeSessions = () => tempDir('agentmash-mcp-claude-');
 
 function makeProjectDir() {
-  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-mcp-claims-')));
+  return fs.realpathSync(tempDir('agentmash-mcp-claims-'));
 }
 
 async function connect({ port, env = {}, projectDir = makeProjectDir() } = {}) {
@@ -471,6 +471,11 @@ const EVERY_TOOL = {
   mark_resolved: { file_path: 'src/models/user.ts', outcome: 'merged' },
   check_inbox: {},
   reply_to_teammate: { message_id: `msg_${'a'.repeat(22)}`, text: 'thanks, on it' },
+  tasks_list: {},
+  task_get: { task: 'T-1' },
+  task_create: { title: 'tidy the export docs' },
+  task_update: { task: 'T-1', status: 'done' },
+  task_comment: { task: 'T-1', text: 'docs tidied' },
 };
 
 test('no tool answer names the room by its key', async () => {
@@ -934,7 +939,7 @@ test('a process that never claimed anything sends nothing on close', async () =>
 
 /** An AGENTMASH_HOME as `npx agentmash login` and `login --room` leave it, for a server at `url`. */
 function machineHome(url, { developerToken = null, roomRef = null, userToken = null } = {}) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-mcp-claims-home-'));
+  const home = tempDir('agentmash-mcp-claims-home-');
   fs.mkdirSync(path.join(home, '.agentmash'), { recursive: true });
   if (developerToken) {
     fs.writeFileSync(

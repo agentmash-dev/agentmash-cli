@@ -15,8 +15,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import * as lib from '../lib.mjs';
+import { tempDir } from './tmp.mjs';
 
-const scratch = (name) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `agentmash-identity-${name}-`)));
+const scratch = (name) => fs.realpathSync(tempDir(`agentmash-identity-${name}-`));
 
 // Nobody's own setup: a home of its own for the sign-in, and git configs of
 // the test's own, so git answers from what is made below and nothing else.

@@ -7,14 +7,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import * as lib from '../lib.mjs';
 import { eventsOf, machine, runHook, session, startServer } from './fixtures.mjs';
+import { tempDir } from './tmp.mjs';
 
 // a home of its own, for what lib.mjs keeps there, and git with no config but the repository's
-process.env.AGENTMASH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-secrets-home-'));
+process.env.AGENTMASH_HOME = tempDir('agentmash-secrets-home-');
 const EMPTY_GITCONFIG = path.join(process.env.AGENTMASH_HOME, 'gitconfig');
 fs.writeFileSync(EMPTY_GITCONFIG, '');
 const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: EMPTY_GITCONFIG, GIT_CONFIG_NOSYSTEM: '1' };
@@ -138,7 +138,7 @@ test('a secret right where the prompt is cut is masked whole, not cut to a piece
 test('a commit made in a session goes to the room with a secret in its subject masked', async () => {
   // reportCommits sends a commit's subject as the git client does (clients/git/post_commit.mjs)
   const server = await startServer();
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-secret-commit-')));
+  const dir = fs.realpathSync(tempDir('agentmash-secret-commit-'));
   const git = (...args) => execFileSync('git', args, { cwd: dir, env: gitEnv, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
   try {
     git('init', '-q');

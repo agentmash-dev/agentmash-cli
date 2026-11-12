@@ -11,11 +11,11 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { digestSourceDir } from '../digest.mjs';
+import { tempDir } from './fixtures/tmp.mjs';
 
 const CLI_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CLI = path.join(CLI_DIR, 'agentmash.mjs');
@@ -26,7 +26,7 @@ const NOW = Date.parse('2026-08-31T18:00:00Z');
 const HOUR = 3_600_000;
 
 // an empty global git config, so every git call stays inside the temporary repositories
-const EMPTY_GITCONFIG = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-digest-git-')), 'gitconfig');
+const EMPTY_GITCONFIG = path.join(tempDir('agentmash-digest-git-'), 'gitconfig');
 fs.writeFileSync(EMPTY_GITCONFIG, '');
 const baseEnv = {
   ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('AGENTMASH_') && k !== 'NO_COLOR')),
@@ -96,14 +96,14 @@ function startServer({ connected = true } = {}) {
 
 /** A git repository, with a GitHub origin when `origin` is given, and a home that is signed in to `signedIn` when given. */
 function setup({ origin, signedIn, config } = {}) {
-  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-digest-repo-')));
+  const repo = fs.realpathSync(tempDir('agentmash-digest-repo-'));
   execFileSync('git', ['init', '-q'], { cwd: repo, stdio: 'ignore', env: baseEnv });
   if (origin) execFileSync('git', ['remote', 'add', 'origin', origin], { cwd: repo, stdio: 'ignore', env: baseEnv });
   if (config) {
     fs.mkdirSync(path.join(repo, '.claude', 'agentmash'), { recursive: true });
     fs.writeFileSync(path.join(repo, '.claude', 'agentmash', 'config.json'), JSON.stringify(config));
   }
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-digest-home-'));
+  const home = tempDir('agentmash-digest-home-');
   if (signedIn) {
     fs.mkdirSync(path.join(home, '.agentmash'), { recursive: true });
     fs.writeFileSync(path.join(home, '.agentmash', 'user.json'), JSON.stringify({ url: signedIn, token: SIGN_IN, login: 'alice' }));

@@ -9,10 +9,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import goose, { gooseHooks } from '../agents/goose.mjs';
 import { json, machine, md5, run, runsOurs, shownHere, startServer } from './fixtures/machine.mjs';
+import { tempDir } from './fixtures/tmp.mjs';
 
 /** goose as a person leaves it: config.yaml, set up; and another plugin of theirs beside where ours goes. */
 const CONFIG_YAML = 'GOOSE_PROVIDER: anthropic\nGOOSE_MODEL: claude-sonnet-4-5\nextensions:\n  developer:\n    enabled: true\n    type: platform\n    name: developer\n';
@@ -254,7 +254,7 @@ test('GOOSE_PATH_ROOT moves where goose is found and where its plugins go', asyn
 test('a hooks folder whose path the shell would read as more than a path is never registered: goose would refuse every edit', () => {
   const saved = process.env.GOOSE_PATH_ROOT;
   delete process.env.GOOSE_PATH_ROOT;
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-goose-quote-')));
+  const home = fs.realpathSync(tempDir('agentmash-goose-quote-'));
   const places = { home, toolPath: '', apps: null };
   try {
     for (const odd of ['we$ird', 'back`tick', 'say"hi"']) {

@@ -10,17 +10,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import * as lib from '../lib.mjs';
 import { HOOKS_DIR, baseEnv, machine, runHook, session, startServer, within } from './fixtures.mjs';
+import { tempDir } from './tmp.mjs';
 
 const FILE = 'src/models/user.ts';
 
 /** loadConfig for a checkout with `lines` in .env, `inner` in .claude/agentmash/.env, and `committed` in config.json. */
 function configWith(lines, committed = {}, inner = []) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-warn-self-')));
+  const dir = fs.realpathSync(tempDir('agentmash-warn-self-'));
   fs.writeFileSync(path.join(dir, '.env'), lines.join('\n') + '\n');
   fs.mkdirSync(path.join(dir, '.claude', 'agentmash'), { recursive: true });
   fs.writeFileSync(path.join(dir, '.claude', 'agentmash', '.env'), inner.join('\n') + '\n');
@@ -164,7 +164,7 @@ test("lobbySessionId is the app's session in the one shape the app gives (ls_ an
  */
 async function claimedUnder(server, project, env) {
   const child = spawn(process.execPath, [path.join(HOOKS_DIR, 'mcp_server.mjs')], {
-    env: { ...baseEnv, CLAUDE_PROJECT_DIR: project, CLAUDE_CONFIG_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-warn-self-claude-')), ...env },
+    env: { ...baseEnv, CLAUDE_PROJECT_DIR: project, CLAUDE_CONFIG_DIR: tempDir('agentmash-warn-self-claude-'), ...env },
     stdio: ['pipe', 'pipe', 'ignore'],
   });
   const answers = new Map();
@@ -218,7 +218,7 @@ test("with AGENTMASH_WARN_SELF and no Claude Code session of its own, the MCP se
 
     // claude code in the app keeps a session file for the process that starts this one: that id comes first,
     // the one its hooks send as session_id
-    const claude = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-warn-self-claude-'));
+    const claude = tempDir('agentmash-warn-self-claude-');
     fs.mkdirSync(path.join(claude, 'sessions'));
     fs.writeFileSync(path.join(claude, 'sessions', `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: 'claude-in-the-app' }));
     assert.equal(await claimedUnder(server, project, { ...on, CLAUDE_CONFIG_DIR: claude, AGENTMASH_LOBBY_SESSION: HOSTED }), 'claude-in-the-app');

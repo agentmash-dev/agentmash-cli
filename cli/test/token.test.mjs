@@ -17,6 +17,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { expiresInDays, nameOf, parseTokenArgs, reposOf } from '../token.mjs';
+import { tempDir } from './fixtures/tmp.mjs';
 
 const CLI_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const MODULE = pathToFileURL(path.join(CLI_DIR, 'token.mjs')).href;
@@ -78,14 +79,17 @@ async function startServer() {
       if (route === 'create') {
         const asked = JSON.parse(body);
         const days = asked.expires_in_days === undefined ? 90 : asked.expires_in_days;
+        // made now, as the server makes one: made on a fixed day, a token for 30
+        // days read as expired once the calendar passed it, and the test failed
+        const now = Date.now();
         state.created = {
           id: 'tok_0a1b2c3d',
           name: asked.name,
           scopes: asked.scopes ?? ['read', 'write'],
           repos: asked.repos ?? null,
-          created_at: '2026-10-05T10:00:00.000Z',
+          created_at: new Date(now).toISOString(),
           last_used: null,
-          expires_at: days === null ? null : new Date(Date.parse('2026-10-05T10:00:00.000Z') + days * 86_400_000).toISOString(),
+          expires_at: days === null ? null : new Date(now + days * 86_400_000).toISOString(),
           token: SECRET,
         };
         return send({ status: 201, body: state.created });
@@ -105,9 +109,12 @@ async function startServer() {
   return { url: `http://127.0.0.1:${server.address().port}`, requests, state };
 }
 
+/** The day the token `server` made last expires, as the CLI says it: the server's UTC day. */
+const expiryDay = (server) => server.state.created.expires_at.slice(0, 10);
+
 /** A home signed in to `url` (null: not signed in). */
 function home(url) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-token-')));
+  const dir = fs.realpathSync(tempDir('agentmash-token-'));
   if (url) {
     fs.mkdirSync(path.join(dir, '.agentmash'), { recursive: true });
     fs.writeFileSync(
@@ -152,7 +159,8 @@ const LISTED = [
     repos: ['acme/app'],
     created_at: '2026-09-01T00:00:00.000Z',
     last_used: '2026-10-04T12:00:00.000Z',
-    expires_at: '2026-12-01T00:00:00.000Z',
+    // a month from whenever this runs, so it still reads as one that expires
+    expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
   },
   {
     id: 'tok_22222222',
@@ -194,7 +202,7 @@ test('create sends the sign-in as a Bearer token, and puts the token alone on st
   // the server's own default expiry when none is asked for
   assert.deepEqual(sent.body, { name: 'ci-bot', scopes: ['read', 'write'] });
   assert.match(res.stderr, /made ci-bot\s+tok_0a1b2c3d/);
-  assert.match(res.stderr, /read and write · every repository you can push to · expires 2027-01-03/);
+  assert.match(res.stderr, new RegExp(`read and write · every repository you can push to · expires ${expiryDay(server)}`));
   assert.match(res.stderr, /copy it now: it is shown this once/);
   assert.match(res.stderr, /Authorization: Bearer amp_…/);
   assert.match(res.stderr, /30 days old/);
@@ -213,7 +221,7 @@ test('create says read-only, repositories and expiry as the server takes them', 
     repos: ['acme/app', 'acme/api', 'acme/web.site'],
     expires_in_days: 30,
   });
-  assert.match(res.stderr, /read only · acme\/app, acme\/api, acme\/web\.site · expires 2026-11-04/);
+  assert.match(res.stderr, new RegExp(`read only · acme/app, acme/api, acme/web\\.site · expires ${expiryDay(server)}`));
 
   res = await token(['create', '--name=forever', '--expires=never'], dir);
   assert.equal(res.code, 0, res.stderr);
@@ -343,7 +351,7 @@ test('list shows each token, never a secret, and --json the server\'s list', asy
   assert.equal(server.requests[0].authorization, `Bearer ${MACHINE}`);
   assert.match(res.stdout, /agentmash tokens\s+alice · http:\/\/127\.0\.0\.1:\d+/);
   const line = (id) => res.stdout.split('\n').find((l) => l.includes(id)) ?? '';
-  assert.match(line('tok_11111111'), /ci-bot\s+read and write\s+acme\/app\s+last used 2026-10-04\s+expires 2026-12-01$/);
+  assert.match(line('tok_11111111'), new RegExp(`ci-bot\\s+read and write\\s+acme/app\\s+last used 2026-10-04\\s+expires ${LISTED[0].expires_at.slice(0, 10)}$`));
   assert.match(line('tok_22222222'), /laptop\s+read only\s+all repositories\s+never used\s+never expires$/);
   assert.match(line('tok_33333333'), /expired 2025-04-01$/);
   assert.match(res.stdout, /revoke one: npx agentmash token revoke <id>/);

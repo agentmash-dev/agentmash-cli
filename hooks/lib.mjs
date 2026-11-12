@@ -20,7 +20,7 @@ import { execFile, execFileSync, spawn } from 'node:child_process';
  * every request (x-agentmash-hooks), and to a login's newer copy, which tells
  * the person when the committed ones are older (staleInstallNote).
  */
-export const HOOKS_VERSION = '0.13.5'; // agentmash:hooks-version
+export const HOOKS_VERSION = '0.14.0'; // agentmash:hooks-version
 
 // Two budgets, because the hooks have two very different jobs.
 //
@@ -3973,6 +3973,13 @@ function watchExit() {
  *   timeoutMs  the budget, when it is not the report budget (session_end's)
  */
 export async function reportEvent(config, body, { hook = null, project = null, timeoutMs } = {}) {
+  // The repository the report comes from (owner/name, from the origin remote,
+  // as /api/lookup is asked), for the free plan's one repository, one team
+  // rule: read from the git config, no subprocess. Nothing outside a checkout.
+  if (body && body.repo === undefined && project) {
+    const repo = repoSlug(project);
+    if (repo) body = { ...body, repo };
+  }
   const report = { hook, body, project, config, started: Date.now() };
   inFlight.add(report);
   watchExit();
@@ -4003,6 +4010,22 @@ export async function reportEvent(config, body, { hook = null, project = null, t
   }
   forgetRefusal(body?.session_id);
   return res.json;
+}
+
+/**
+ * The id a subagent's reports carry (`subagent`), so the room's agent-hour
+ * meter counts it as an agent of its own: the first 16 hex characters of a
+ * hash of the session's id and Claude Code's agent_id, which says nothing of
+ * the subagent, its name or its prompt, and is the same for each of its
+ * reports. Null for the session's own agent (no agent_id). Never throws.
+ */
+export function subagentRef(sessionId, agentId) {
+  if (typeof agentId !== 'string' || !agentId || typeof sessionId !== 'string') return null;
+  try {
+    return crypto.createHash('sha256').update(`${sessionId}\n${agentId}`).digest('hex').slice(0, 16);
+  } catch {
+    return null;
+  }
 }
 
 // ── a plan with no seat for this developer ──────────────────────────────────

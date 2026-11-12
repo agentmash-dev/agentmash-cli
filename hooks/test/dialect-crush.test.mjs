@@ -14,13 +14,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as lib from '../lib.mjs';
 import { clientToolKind, editedFiles, registerClientTools } from '../lib.mjs';
 import { HOOKS_DIR, eventsOf, machine, runHook, session, startServer, within } from './fixtures.mjs';
 import * as crush from './fixtures/crush/pre_tool_use.mjs';
+import { tempDir } from './tmp.mjs';
 
 /** As login registers it (cli/agents/crush.mjs), less `node` and the folder. */
 const ARGS = ['--global', '--client', 'crush'];
@@ -253,7 +253,7 @@ test("the dialect's answers, each as Crush reads it, and what it reads from Crus
   const cwd = path.join(path.sep, 'r');
   const advice = { action: 'advise', text: '[AgentMash: RECENT EDIT] alice touched a.ts', files: [path.join(cwd, 'a.ts')], client: 'crush', session_id: 'unit' };
   const saved = process.env.AGENTMASH_HOME;
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-crush-dialect-'));
+  const home = tempDir('agentmash-crush-dialect-');
   try {
     process.env.AGENTMASH_HOME = home;
     const first = JSON.parse(dialect.answer('pre_edit', advice).stdout);

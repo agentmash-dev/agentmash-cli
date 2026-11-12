@@ -19,6 +19,7 @@ import { buildTeamContext, githubRepoFromUrl, promptForEdit, readPrompt, readSes
 // without them fails the tests that need them, not the whole file.
 import * as lib from '../lib.mjs';
 import { within } from './fixtures.mjs';
+import { tempDir } from './tmp.mjs';
 
 const HOOKS_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const REF = 'rm_0123456789';
@@ -108,7 +109,7 @@ function startServer({
 
 /** A home signed in to `port`, and a checkout whose origin is `remote`. */
 function machine(port, { remote = 'git@github.com:Acme/App.git', signedIn = true, repoInstall = false } = {}) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-home-'));
+  const home = tempDir('agentmash-home-');
   if (signedIn) {
     fs.mkdirSync(path.join(home, '.agentmash'), { recursive: true });
     fs.writeFileSync(
@@ -116,7 +117,7 @@ function machine(port, { remote = 'git@github.com:Acme/App.git', signedIn = true
       JSON.stringify({ url: `http://127.0.0.1:${port}`, token: USER_TOKEN, login: 'bob' })
     );
   }
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-checkout-'));
+  const project = tempDir('agentmash-checkout-');
   fs.mkdirSync(path.join(project, '.git'));
   fs.writeFileSync(path.join(project, '.git', 'HEAD'), 'ref: refs/heads/feat/login\n');
   fs.writeFileSync(
@@ -186,14 +187,14 @@ test('a checkout is recognised from its origin, from a worktree too', () => {
   assert.equal(repoSlug(path.join(project, 'src', 'deep')), 'acme/app', 'from anywhere inside it');
 
   // a worktree: .git is a file, and the config lives in the shared git directory
-  const worktree = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-worktree-'));
+  const worktree = tempDir('agentmash-worktree-');
   const wtGit = path.join(project, '.git', 'worktrees', 'wt');
   fs.mkdirSync(wtGit, { recursive: true });
   fs.writeFileSync(path.join(wtGit, 'commondir'), '../..\n');
   fs.writeFileSync(path.join(worktree, '.git'), `gitdir: ${wtGit}\n`);
   assert.equal(repoSlug(worktree), 'acme/app');
 
-  const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-plain-'));
+  const plain = tempDir('agentmash-plain-');
   assert.equal(repoSlug(plain), null, 'not a checkout');
 });
 
@@ -232,7 +233,7 @@ test("every remote of a checkout is read, origin's first, and one through an SSH
   ]);
   assert.equal(repoSlug(project), 'alice/app', 'the hooks still go by origin');
 
-  const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-plain-'));
+  const plain = tempDir('agentmash-plain-');
   assert.deepEqual(lib.gitRemotes?.(plain), [], 'not a checkout: no remotes');
 });
 
@@ -456,7 +457,7 @@ test('the first session in a room tells the person once what leaves this machine
     assert.ok(!(await start({ AGENTMASH_URL: `http://127.0.0.1:${other.port}` })).stdout.includes('AgentMash shares'));
 
     // a committed install's key room, as a teammate who pulled it starts their first session
-    const pulled = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-checkout-'));
+    const pulled = tempDir('agentmash-checkout-');
     fs.mkdirSync(path.join(pulled, '.claude', 'agentmash'), { recursive: true });
     fs.writeFileSync(
       path.join(pulled, '.claude', 'agentmash', 'config.json'),
@@ -912,7 +913,7 @@ test('a turn the harness sent catches up on what changed before it, as a reposit
   // with its notification, and not again at the next prompt.
   const server = await startServer();
   const { env, project } = machine(server.port);
-  const gitconfig = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-global-git-')), 'gitconfig');
+  const gitconfig = path.join(tempDir('agentmash-global-git-'), 'gitconfig');
   fs.writeFileSync(gitconfig, '');
   const gitEnv = { GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: '1' };
   const git = (...args) => execFileSync('git', args, { cwd: project, env: { ...baseEnv, ...gitEnv }, stdio: 'ignore' });

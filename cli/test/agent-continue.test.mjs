@@ -10,11 +10,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { AGENTS, agentFiles, agentPlaces } from '../tools.mjs';
 import cont, { continueItem, continueServer } from '../agents/continue.mjs';
 import { machine, md5, run, shownHere, startServer } from './fixtures/machine.mjs';
+import { tempDir } from './fixtures/tmp.mjs';
 
 /** The config.yaml Continue writes when it finds none (core/config/default.ts, through the yaml package). */
 const DEFAULT = 'name: Main Config\nversion: 1.0.0\nschema: v1\nmodels: []\n';
@@ -323,7 +323,7 @@ test('the module: an agent like the others, with no hooks, every file it writes 
   assert.ok(written, continueItem(odd));
   assert.deepEqual(JSON.parse(written[1]), [path.join(odd, 'mcp_server.mjs')]);
 
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-continue-files-')));
+  const home = fs.realpathSync(tempDir('agentmash-continue-files-'));
   const saved = process.env.CONTINUE_GLOBAL_DIR;
   try {
     delete process.env.CONTINUE_GLOBAL_DIR;
@@ -342,7 +342,7 @@ test('the module: an agent like the others, with no hooks, every file it writes 
 function roundTrip(config) {
   const saved = process.env.CONTINUE_GLOBAL_DIR;
   delete process.env.CONTINUE_GLOBAL_DIR;
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-continue-shape-')));
+  const home = fs.realpathSync(tempDir('agentmash-continue-shape-'));
   const places = { home, toolPath: '', apps: null };
   const hookDir = path.join(home, '.agentmash', 'hooks');
   const file = path.join(home, '.continue', 'config.yaml');
@@ -389,7 +389,7 @@ test('each way a person may write config.yaml that this reads: ours goes in as t
 test('ours with a command the person changed (a full path to node) is already connected, and left as they wrote it', () => {
   const saved = process.env.CONTINUE_GLOBAL_DIR;
   delete process.env.CONTINUE_GLOBAL_DIR;
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-continue-mine-')));
+  const home = fs.realpathSync(tempDir('agentmash-continue-mine-'));
   try {
     const places = { home, toolPath: '', apps: null };
     const hookDir = path.join(home, '.agentmash', 'hooks');

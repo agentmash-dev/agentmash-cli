@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { tempDir } from './tmp.mjs';
 
 const MCP_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SERVER = path.join(MCP_DIR, 'server.mjs');
@@ -35,7 +36,7 @@ const baseEnv = {
   ...Object.fromEntries(
     Object.entries(process.env).filter(([k]) => !k.startsWith('AGENTMASH_') && k !== 'CLAUDE_PROJECT_DIR')
   ),
-  AGENTMASH_HOME: fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-mcp-home-')),
+  AGENTMASH_HOME: tempDir('agentmash-mcp-home-'),
 };
 
 const ALL_TOOLS = [
@@ -48,11 +49,16 @@ const ALL_TOOLS = [
   'mark_resolved',
   'release_claim',
   'reply_to_teammate',
+  'task_comment',
+  'task_create',
+  'task_get',
+  'task_update',
+  'tasks_list',
   'who_is_working_on_what',
 ];
 
 function makeProjectDir() {
-  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-mcp-test-')));
+  return fs.realpathSync(tempDir('agentmash-mcp-test-'));
 }
 
 /** Connect a real MCP client to the server over stdio, exactly as Claude Code would. */
@@ -208,8 +214,9 @@ test('the server advertises exactly the three query tools, with schemas', async 
     assert.deepEqual(names, ALL_TOOLS);
 
     // claim_work and release_claim write; everything else only reads, and the
-    // annotations have to say so or a host cannot tell the two apart.
-    const writes = new Set(['claim_work', 'release_claim', 'mark_resolved', 'reply_to_teammate']);
+    // annotations have to say so or a host cannot tell the two apart. The
+    // space's tasks are made, changed and commented on, never deleted.
+    const writes = new Set(['claim_work', 'release_claim', 'mark_resolved', 'reply_to_teammate', 'task_create', 'task_update', 'task_comment']);
     for (const tool of tools) {
       assert.equal(tool.inputSchema.type, 'object');
       // The description is a prompt: it has to tell the agent when to call.
@@ -1119,7 +1126,7 @@ function stampedVersion(file) {
  * the server in ~/.agentmash/hooks: here, stamped with `version`.
  */
 function machineHome(version) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-mcp-machine-'));
+  const home = tempDir('agentmash-mcp-machine-');
   const hooks = path.join(home, '.agentmash', 'hooks');
   fs.mkdirSync(hooks, { recursive: true });
   for (const file of SERVER_FILES) {
@@ -1216,7 +1223,7 @@ test('the degraded launcher answers a repo that was never connected too', async 
  * vouch for, and on Windows any local user can make C:\node_modules.
  */
 test('the launcher never starts a server from a node_modules above its repository', async () => {
-  const above = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-mcp-above-')));
+  const above = fs.realpathSync(tempDir('agentmash-mcp-above-'));
   const ran = path.join(above, 'the planted server ran');
   const planted = path.join(above, 'node_modules', 'agentmash', 'mcp');
   fs.mkdirSync(planted, { recursive: true });
@@ -1241,7 +1248,7 @@ test('the launcher never starts a server from a node_modules above its repositor
  * without a registry. This one behaves like npm having something to say.
  */
 function fakeNpxOnPath(script) {
-  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-fake-npx-'));
+  const bin = tempDir('agentmash-fake-npx-');
   fs.writeFileSync(path.join(bin, 'npx'), script, { mode: 0o755 });
   return `${bin}${path.delimiter}${process.env.PATH}`;
 }

@@ -13,13 +13,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { HOLDER, KEY, baseEnv, runHook, session, startServer, timed } from './fixtures.mjs';
 import { filesACommandWrites, newFileSource } from '../lib.mjs';
+import { tempDir } from './tmp.mjs';
 
-const EMPTY_GITCONFIG = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-command-git-')), 'gitconfig');
+const EMPTY_GITCONFIG = path.join(tempDir('agentmash-command-git-'), 'gitconfig');
 fs.writeFileSync(EMPTY_GITCONFIG, '');
 const gitEnv = { GIT_CONFIG_GLOBAL: EMPTY_GITCONFIG, GIT_CONFIG_NOSYSTEM: '1' };
 
@@ -32,7 +32,7 @@ function writeFile(dir, rel, content) {
 
 /** A committed repository: src/models/user.ts exports createUser, src/api/handlers.ts imports it. */
 function repository() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-command-')));
+  const dir = fs.realpathSync(tempDir('agentmash-command-'));
   const git = (...args) => execFileSync('git', args, { cwd: dir, env: { ...baseEnv, ...gitEnv }, stdio: 'ignore' });
   git('init', '-q');
   git('config', 'user.email', 'bob@example.com');
@@ -49,7 +49,7 @@ function repository() {
 
 function env(repo, port) {
   return {
-    AGENTMASH_HOME: fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-command-home-')),
+    AGENTMASH_HOME: tempDir('agentmash-command-home-'),
     AGENTMASH_URL: `http://127.0.0.1:${port}`,
     AGENTMASH_ROOM: KEY,
     AGENTMASH_DEV: 'bob',

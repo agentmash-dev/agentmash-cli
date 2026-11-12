@@ -5,10 +5,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { tempDir } from './tmp.mjs';
 
 const ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 const CLI = path.join(ROOT, 'cli', 'agentmash.mjs');
@@ -21,14 +21,14 @@ const ROOM = 'mash_gittestgittestgitt';
 // would look for hooks. An empty global config keeps every git call, the CLI's
 // and git()'s below, inside the temporary repositories. Set on process.env so
 // both inherit it.
-const EMPTY_GITCONFIG = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-githook-git-')), 'gitconfig');
+const EMPTY_GITCONFIG = path.join(tempDir('agentmash-githook-git-'), 'gitconfig');
 fs.writeFileSync(EMPTY_GITCONFIG, '');
 process.env.GIT_CONFIG_GLOBAL = EMPTY_GITCONFIG;
 process.env.GIT_CONFIG_NOSYSTEM = '1';
 // And a home of its own, for the same reason: a real commit runs the
 // installed hook with this process's environment, and the worker it starts
 // keeps the key for its checkout ids under ~/.agentmash.
-process.env.AGENTMASH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-githook-commit-home-'));
+process.env.AGENTMASH_HOME = tempDir('agentmash-githook-commit-home-');
 
 // A home and Claude Code settings of their own, too: on a developer's machine
 // signed in with `npx agentmash login`, doctor in a repository with no room
@@ -38,8 +38,8 @@ const baseEnv = {
   ...Object.fromEntries(
     Object.entries(process.env).filter(([k]) => !k.startsWith('AGENTMASH_') && k !== 'CLAUDE_PROJECT_DIR')
   ),
-  AGENTMASH_HOME: fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-githook-home-')),
-  CLAUDE_CONFIG_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-githook-claude-')),
+  AGENTMASH_HOME: tempDir('agentmash-githook-home-'),
+  CLAUDE_CONFIG_DIR: tempDir('agentmash-githook-claude-'),
 };
 
 /**
@@ -49,7 +49,7 @@ const baseEnv = {
  */
 const HAS_FILE_MODES = process.platform !== 'win32';
 const CAN_SYMLINK = (() => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-symlink-probe-'));
+  const dir = tempDir('agentmash-symlink-probe-');
   try {
     fs.symlinkSync(path.join(dir, 'target'), path.join(dir, 'link'));
     return true;
@@ -109,7 +109,7 @@ function git(repo, args) {
 
 /** A repo with the client installed by hand — no room yet, callers write config. */
 function makeRepo() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-git-test-')));
+  const dir = fs.realpathSync(tempDir('agentmash-git-test-'));
   git(dir, ['init', '-q', '-b', 'main']);
   git(dir, ['config', 'user.email', 'alice@example.com']);
   git(dir, ['config', 'user.name', 'Alice']);
@@ -325,7 +325,7 @@ test('a secret in the commit subject reaches the room masked', async () => {
 test('a room that wants a developer token gets the one this machine holds for it', async () => {
   const mock = await startMockServer();
   const repo = makeRepo();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-githook-home-'));
+  const home = tempDir('agentmash-githook-home-');
   fs.mkdirSync(path.join(home, '.agentmash'));
   fs.writeFileSync(
     path.join(home, '.agentmash', 'credentials.json'),
@@ -357,7 +357,7 @@ test('a room that wants a developer token gets the one this machine holds for it
 test("a signed-in machine's commit reports carry its sign-in beside the key, to that server only", async () => {
   const mock = await startMockServer();
   const repo = makeRepo();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-githook-home-'));
+  const home = tempDir('agentmash-githook-home-');
   fs.mkdirSync(path.join(home, '.agentmash'));
   const signIn = (url) =>
     fs.writeFileSync(
@@ -401,7 +401,7 @@ test("in a repository connected on the website, a signed-in machine's commits re
   const signedIn = 'amu_gitlookup0gitlookup0gitloo';
   const mock = await startMockServer({ lookup: { status: 200, body: { room_ref: 'rm_gitlookup0001', developer: 'alice' } } });
   const repo = makeRepo();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-githook-home-'));
+  const home = tempDir('agentmash-githook-home-');
   fs.mkdirSync(path.join(home, '.agentmash'));
   fs.writeFileSync(path.join(home, '.agentmash', 'user.json'), JSON.stringify({ url: mock.url, token: signedIn, login: 'alice' }));
   try {
@@ -443,7 +443,7 @@ test("in a repository connected on the website, a signed-in machine's commits re
 test('a signed-in machine reports nothing for a repository that is not connected, or with no GitHub remote', async () => {
   const mock = await startMockServer({ lookup: { status: 404, body: { error: 'not connected', code: 'not_connected' } } });
   const repo = makeRepo();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-githook-home-'));
+  const home = tempDir('agentmash-githook-home-');
   fs.mkdirSync(path.join(home, '.agentmash'));
   fs.writeFileSync(path.join(home, '.agentmash', 'user.json'), JSON.stringify({ url: mock.url, token: 'amu_gitnone0gitnone0gitnone0gi', login: 'alice' }));
   try {
@@ -845,7 +845,7 @@ test('git-hook install in a repository connected on the website says where its c
   const signedIn = 'amu_githookroom0githookroom0gi';
   const mock = await startMockServer({ lookup: { status: 200, body: { room_ref: 'rm_githookroom001', developer: 'alice' } } });
   const repo = makeRepo();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-githook-home-'));
+  const home = tempDir('agentmash-githook-home-');
   fs.mkdirSync(path.join(home, '.agentmash'));
   fs.writeFileSync(path.join(home, '.agentmash', 'user.json'), JSON.stringify({ url: mock.url, token: signedIn, login: 'alice' }));
   try {
@@ -883,7 +883,7 @@ test('git-hook install in a repository connected on the website says where its c
 // worker reports to with its key (loadConfig), and it never looks one up.
 test('git-hook install with AGENTMASH_ROOM set says its commits go to that room, not one looked up', async () => {
   const mock = await startMockServer({ lookup: { status: 200, body: { room_ref: 'rm_githookenv0001', developer: 'alice' } } });
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-githook-home-'));
+  const home = tempDir('agentmash-githook-home-');
   fs.mkdirSync(path.join(home, '.agentmash'));
   fs.writeFileSync(path.join(home, '.agentmash', 'user.json'), JSON.stringify({ url: mock.url, token: 'amu_githookenv0githookenv0githo', login: 'alice' }));
   try {
@@ -949,7 +949,7 @@ test('git-hook install with no room to report to says so, and what gives it one'
     assert.match(alone.stdout, /run npx agentmash login if the repository is connected on the website, or npx agentmash init to give it a room/);
 
     // signed in, for a repository nobody connected
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-githook-home-'));
+    const home = tempDir('agentmash-githook-home-');
     fs.mkdirSync(path.join(home, '.agentmash'));
     fs.writeFileSync(path.join(home, '.agentmash', 'user.json'), JSON.stringify({ url: mock.url, token: 'amu_githooknone0githooknone0gi', login: 'alice' }));
     const unconnected = makeRepo();
@@ -975,7 +975,7 @@ test('git-hook install with no room to report to says so, and what gives it one'
 // may hide it, as status and doctor do (sayLookupMiss).
 test("git-hook install says what may hide a repository this sign-in couldn't push to", async () => {
   const mock = await startMockServer({ lookup: { status: 404, body: { error: 'not connected', code: 'not_connected', can_push: false } } });
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-githook-home-'));
+  const home = tempDir('agentmash-githook-home-');
   fs.mkdirSync(path.join(home, '.agentmash'));
   fs.writeFileSync(path.join(home, '.agentmash', 'user.json'), JSON.stringify({ url: mock.url, token: 'amu_githookhide0githookhide0gi', login: 'alice' }));
   try {
@@ -1019,7 +1019,7 @@ function isOurs(repo) {
 
 /** A directory outside any repo, standing in for "somewhere on your filesystem". */
 function elsewhere() {
-  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-victim-')));
+  return fs.realpathSync(tempDir('agentmash-victim-'));
 }
 
 test('a dangling post-commit symlink is refused, not written through', { skip: CAN_SYMLINK ? false : 'symlink creation not permitted on this platform' }, async () => {
@@ -1440,7 +1440,7 @@ test('commits made back to back, and a checkout right after, are each reported a
   // then.
   const mock = await startMockServer();
   const repo = makeRepo();
-  const late = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-late-worker-')), 'late.cjs');
+  const late = path.join(tempDir('agentmash-late-worker-'), 'late.cjs');
   fs.writeFileSync(late, 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1500);\n');
   const slow = { ...process.env, NODE_OPTIONS: `--require "${late.split(path.sep).join('/')}"` };
   const commitSlowly = (message) => execFileSync('git', ['commit', '-q', '-m', message], { cwd: repo, env: slow, stdio: 'ignore' });

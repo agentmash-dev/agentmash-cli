@@ -9,11 +9,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { asClaudeEdit, clientToolKind, editedFiles, noteTouched, patchOf, registerClientTools } from '../lib.mjs';
 import { HOOKS_DIR, eventsOf, machine, runHook, session, startServer, within } from './fixtures.mjs';
+import { tempDir } from './tmp.mjs';
 
 const hook = (event, payload, env, args, opts) => runHook('agent_hook.mjs', payload, env, [event, ...args], opts);
 const userTs = (m) => path.join(m.project, 'src', 'models', 'user.ts');
@@ -47,7 +47,7 @@ const normalEdit = (m, s, extra = {}) => ({
 
 /** A copy of the hooks folder, with `extra` files written into it, for a dialect of an agent's own or a script that misbehaves. */
 function hooksCopy(extra = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-agent-hook-copy-'));
+  const dir = tempDir('agentmash-agent-hook-copy-');
   fs.mkdirSync(path.join(dir, 'dialects'));
   for (const file of fs.readdirSync(HOOKS_DIR).filter((f) => f.endsWith('.mjs'))) fs.copyFileSync(path.join(HOOKS_DIR, file), path.join(dir, file));
   for (const file of fs.readdirSync(path.join(HOOKS_DIR, 'dialects'))) {
@@ -128,13 +128,13 @@ test('deny-once refuses only once it has written the refusal down, and forgets i
   const advice = { action: 'advise', text: '[AgentMash: RECENT EDIT] x', files: ['/r/a.ts'], client: 'acme', session_id: 's-1' };
   try {
     // a home that cannot be written (a sandbox): never a refusal, or every try would be refused
-    const blocked = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-deny-once-')), 'a-file');
+    const blocked = path.join(tempDir('agentmash-deny-once-'), 'a-file');
     fs.writeFileSync(blocked, '');
     process.env.AGENTMASH_HOME = blocked;
     assert.equal(denyOnce.answer('pre_edit', advice).stdout, GO_ON);
     assert.equal(denyOnce.answer('pre_edit', advice).stdout, GO_ON);
 
-    process.env.AGENTMASH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-deny-once-'));
+    process.env.AGENTMASH_HOME = tempDir('agentmash-deny-once-');
     assert.match(denyOnce.answer('pre_edit', advice).stdout, /"decision":"deny"/);
     assert.equal(denyOnce.answer('pre_edit', advice).stdout, GO_ON, 'the same edit again');
     assert.match(denyOnce.answer('pre_edit', { ...advice, files: ['/r/a.ts', '/r/b.ts'] }).stdout, /"decision":"deny"/, 'a file it was not told about');

@@ -2146,6 +2146,12 @@ function reportFix(f, { repoInstall, budgetMs = 0, lib = null }) {
       // an address built here would be one the server may not serve
       case 'seat_limit':
         return `the team's plan has no seat left for this developer this period: ${f.upgrade_url || 'upgrade it'}`;
+      case 'agent_hours_limit':
+        return `the team's free plan has used its agent-hours this month, so new sessions are not shared until they reset on the 1st (UTC): ${f.upgrade_url || 'upgrade it'}`;
+      case 'repo_in_free_team':
+        return `this repository is connected to another free team's room: connect this checkout to it with npx agentmash connect, or upgrade: ${f.upgrade_url || 'upgrade it'}`;
+      case 'free_plan_sign_in':
+        return "on the free plan an agent's work is shared once its developer signs in with GitHub: npx agentmash login, then start a new session";
       default:
         return f.status >= 500
           ? 'the server failed on its side; if it keeps happening, tell whoever runs it'

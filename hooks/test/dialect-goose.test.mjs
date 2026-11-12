@@ -12,7 +12,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -20,6 +19,7 @@ import { gooseHooks } from '../../cli/agents/goose.mjs';
 import { HOOKS_DIR, baseEnv, eventsOf, machine, startServer, within } from './fixtures.mjs';
 import { afterEdit, afterShell, afterWrite, preEdit, preExtension, preShell, preWrite } from './fixtures/goose/tool-events.mjs';
 import { promptDesktop, promptLegacy, sessionEnd, sessionStart, sessionStartDesktop, stop } from './fixtures/goose/session-events.mjs';
+import { tempDir } from './tmp.mjs';
 
 /** The arguments each of goose's events runs agent_hook.mjs with, as login registers them. */
 const REGISTERED = Object.fromEntries(
@@ -294,7 +294,7 @@ test('anything wrong lets the call through with nothing printed and exit 0: garb
 test('the dialect: a refusal only on advice not yet given, never a word that would read as a decision otherwise', async () => {
   const { default: dialect } = await import(pathToFileURL(path.join(HOOKS_DIR, 'dialects', 'goose.mjs')).href);
   const saved = process.env.AGENTMASH_HOME;
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-goose-dialect-'));
+  const home = tempDir('agentmash-goose-dialect-');
   try {
     process.env.AGENTMASH_HOME = home;
     const advice = { action: 'advise', text: '[AgentMash: RECENT EDIT] x.', files: ['/r/a.ts'], client: 'goose', session_id: '20261005_1' };

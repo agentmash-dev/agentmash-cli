@@ -26,6 +26,7 @@ import {
   stateText,
   takenByHand,
 } from '../inbox.mjs';
+import { tempDir } from './fixtures/tmp.mjs';
 
 const CLI_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const MODULE = pathToFileURL(path.join(CLI_DIR, 'inbox.mjs')).href;
@@ -206,7 +207,7 @@ const AT_TERMINAL = { INBOX_TYPED: 'code' };
 
 /** A home signed in to `url` (null: not signed in). */
 function home(url) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-inbox-')));
+  const dir = fs.realpathSync(tempDir('agentmash-inbox-'));
   if (url) {
     fs.mkdirSync(path.join(dir, '.agentmash'), { recursive: true });
     fs.writeFileSync(path.join(dir, '.agentmash', 'user.json'), JSON.stringify({ url, token: MACHINE, login: 'alice' }));
@@ -216,7 +217,7 @@ function home(url) {
 
 /** A checkout whose origin is acme/app, with the room's config committed when `config` is given. */
 function checkout(config = null) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-inbox-repo-')));
+  const dir = fs.realpathSync(tempDir('agentmash-inbox-repo-'));
   fs.mkdirSync(path.join(dir, '.git'));
   fs.writeFileSync(path.join(dir, '.git', 'HEAD'), 'ref: refs/heads/main\n');
   fs.writeFileSync(path.join(dir, '.git', 'config'), '[core]\n\tbare = false\n[remote "origin"]\n\turl = git@github.com:Acme/App.git\n');
@@ -543,7 +544,7 @@ test('accept takes a code typed at the person’s own terminal, shown there only
   assert.equal(server.state.messages[0].state, 'pending', 'and it still waits for the person');
 
   // typed back: accepted, and the code was on the terminal alone, never on stdout or stderr, which an agent reads
-  const shownFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-inbox-shown-')), 'shown.txt');
+  const shownFile = path.join(tempDir('agentmash-inbox-shown-'), 'shown.txt');
   const yes = await run('cmdInbox', ['accept', id], server, { ...AT_TERMINAL, INBOX_SHOWN: shownFile });
   assert.equal(yes.code, 0, yes.stderr);
   const shown = fs.readFileSync(shownFile, 'utf8');
@@ -578,7 +579,7 @@ test('the code is a new one every time, and only that code says yes', async () =
 
 test('on Windows the code goes to the console itself, not to a file named CONOUT$ where the command runs', { skip: process.platform !== 'win32' && 'the console device is Windows only' }, () => {
   // run where the person's repo would be: a relative CONOUT$ is a plain file there, which nobody reads
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-inbox-conout-'));
+  const cwd = tempDir('agentmash-inbox-conout-');
   const script =
     'const m = await import(process.argv[1]); process.stdin.isTTY = true;' +
     ' const t = m.ownTerminal(); if (t) { t.say(""); t.close(); }';
@@ -629,7 +630,7 @@ test('from the CLI: the checkout’s own room by its ref, beside this machine’
   assert.equal(unconnected.code, 1);
   assert.match(unconnected.stderr, /acme\/app is not connected to a room/);
   // outside a repository
-  const nowhere = await exec([CLI, 'inbox'], { home: signedIn, cwd: fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-nowhere-'))) });
+  const nowhere = await exec([CLI, 'inbox'], { home: signedIn, cwd: fs.realpathSync(tempDir('agentmash-nowhere-')) });
   assert.equal(nowhere.code, 1);
   assert.match(nowhere.stderr, /is not inside a git repository/);
   // signed in to another server than the room's

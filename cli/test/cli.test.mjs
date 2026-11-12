@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +13,7 @@ import { within } from '../../tools/test-timing.mjs';
 // cli/clients/, which is the artefact the pin assertions below are about.
 import { stampVersion } from '../sync-hooks.mjs';
 import * as sync from '../sync-hooks.mjs';
+import { tempDir } from './fixtures/tmp.mjs';
 
 const CLI_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CLI = path.join(CLI_DIR, 'agentmash.mjs');
@@ -24,7 +24,7 @@ const CLI = path.join(CLI_DIR, 'agentmash.mjs');
 // config keeps every git call inside the temporary repositories. So does an
 // empty excludes file: with none set, git reads ~/.config/git/ignore, and what
 // init says about ignored files would be about whoever runs the tests.
-const EMPTY_GITCONFIG = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-git-')), 'gitconfig');
+const EMPTY_GITCONFIG = path.join(tempDir('agentmash-cli-git-'), 'gitconfig');
 const EMPTY_EXCLUDES = path.join(path.dirname(EMPTY_GITCONFIG), 'ignore');
 fs.writeFileSync(EMPTY_EXCLUDES, '');
 fs.writeFileSync(EMPTY_GITCONFIG, `[core]\n\texcludesFile = ${EMPTY_EXCLUDES.split(path.sep).join('/')}\n`);
@@ -45,10 +45,10 @@ const baseEnv = {
   // ~/.agentmash, and the MCP launcher looks there for a newer copy of its
   // server, so neither may be the developer's. A test that needs its own home
   // still passes one.
-  AGENTMASH_HOME: fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-home-')),
+  AGENTMASH_HOME: tempDir('agentmash-cli-home-'),
   // And Claude Code settings of its own: hooks a developer's sign-in put in
   // theirs would make doctor check this machine as a signed-in one.
-  CLAUDE_CONFIG_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-claude-')),
+  CLAUDE_CONFIG_DIR: tempDir('agentmash-cli-claude-'),
 };
 
 function run(args, { cwd, env = {} } = {}) {
@@ -75,7 +75,7 @@ function run(args, { cwd, env = {} } = {}) {
 }
 
 function makeRepo(prefix = 'agentmash-cli-test-') {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const dir = tempDir(prefix);
   execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
   return fs.realpathSync(dir);
 }
@@ -913,7 +913,7 @@ test('the MCP server in .mcp.json never starts a launcher from above the reposit
     ],
   ];
   for (const [layout, build] of layouts) {
-    const above = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash above ')));
+    const above = fs.realpathSync(tempDir('agentmash above '));
     const ran = plantLauncher(above);
     const { registered, start } = build(above);
     const talk = await talkToRegisteredServer(registered, { cwd: start });
@@ -1031,7 +1031,7 @@ test('init keeps the MCP servers a team registered itself', async () => {
 test('doctor names who the hooks report as: the login this machine is signed in as for the room’s server, AGENTMASH_DEV over it', async () => {
   const mock = await startMockServer();
   const repo = makeRepo();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-doctor-home-'));
+  const home = tempDir('agentmash-cli-doctor-home-');
   try {
     execFileSync('git', ['config', 'user.email', 'bob@example.com'], { cwd: repo });
     await run(['init', '--server', mock.url], { cwd: repo, env: { AGENTMASH_HOME: home } });
@@ -1055,7 +1055,7 @@ test('doctor never names the person running it as their own teammate, under the 
   for (const you of [['bob-gh', 'bob@example.com'], null]) {
     const mock = await startMockServer({ alsoActive: ['bob-gh'], you });
     const repo = makeRepo();
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-doctor-self-'));
+    const home = tempDir('agentmash-cli-doctor-self-');
     execFileSync('git', ['config', 'user.email', 'bob@example.com'], { cwd: repo });
     try {
       await run(['init', '--server', mock.url], { cwd: repo, env: { AGENTMASH_HOME: home } });
@@ -1226,8 +1226,8 @@ test('init says -f takes an ignored .mcp.json whole, another server and its toke
 test('doctor warns that a session started in a subfolder reports nothing, unless this machine has hooks that report from there', async () => {
   const mock = await startMockServer();
   const repo = makeRepo();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-home-'));
-  const claude = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-claude-'));
+  const home = tempDir('agentmash-cli-home-');
+  const claude = tempDir('agentmash-cli-claude-');
   const env = { AGENTMASH_DEV: 'bob', AGENTMASH_HOME: home, CLAUDE_CONFIG_DIR: claude };
   try {
     assert.equal((await run(['init', '--server', mock.url], { cwd: repo, env })).code, 0);
@@ -1336,7 +1336,7 @@ const failed = (repo, url, minutesAgo, fields) => ({
 test('doctor lists reports that never reached the room, with a fix for each cause', async () => {
   const mock = await startMockServer();
   const repo = makeRepo();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-home-'));
+  const home = tempDir('agentmash-cli-home-');
   const env = { AGENTMASH_HOME: home, AGENTMASH_DEV: 'bob' };
   try {
     await run(['init', '--server', mock.url], { cwd: repo, env });
@@ -1370,7 +1370,7 @@ test('doctor lists reports that never reached the room, with a fix for each caus
 test('doctor does not ask for a longer timeout_ms than a hook has before Claude Code stops it', async () => {
   const mock = await startMockServer();
   const repo = makeRepo();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-home-'));
+  const home = tempDir('agentmash-cli-home-');
   const env = { AGENTMASH_HOME: home, AGENTMASH_DEV: 'bob' };
   try {
     await run(['init', '--server', mock.url], { cwd: repo, env });
@@ -1575,7 +1575,7 @@ test('doctor says how long ago it heard a teammate, not a raw timestamp', async 
 });
 
 test('outside a repository, status says the folder is the problem, and doctor asks nobody to approve a server', async () => {
-  const folder = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-not-a-repo-')));
+  const folder = fs.realpathSync(tempDir('agentmash-cli-not-a-repo-'));
   const status = await run(['status'], { cwd: folder });
   assert.equal(status.code, 1);
   const lines = `${status.stdout}${status.stderr}`.split('\n').filter((l) => /[✗!]/.test(l));
@@ -1590,7 +1590,7 @@ test('outside a repository, status says the folder is the problem, and doctor as
 test('status says when edits have not been reaching the room', async () => {
   const mock = await startMockServer();
   const repo = makeRepo();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-home-'));
+  const home = tempDir('agentmash-cli-home-');
   try {
     await run(['init', '--server', mock.url], { cwd: repo, env: { AGENTMASH_HOME: home } });
     const quiet = await run(['status'], { cwd: repo, env: { AGENTMASH_HOME: home } });
@@ -1902,7 +1902,7 @@ test("uninstall never deletes a settings file with anything of the developer's i
  * a snapshot of all of it, to compare after a command that must not touch it.
  */
 function homeDirectory() {
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-homedir-')));
+  const home = fs.realpathSync(tempDir('agentmash-cli-homedir-'));
   const files = {
     '.claude/settings.json': JSON.stringify(
       {
@@ -1942,7 +1942,7 @@ test('uninstall refuses to run outside a repository, and says logout is what tak
     assert.match(result.stderr, /not inside a git repository/);
     assert.match(result.stderr, /npx agentmash logout/);
   }
-  const elsewhere = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-not-a-repo-')));
+  const elsewhere = fs.realpathSync(tempDir('agentmash-cli-not-a-repo-'));
   const named = await run(['uninstall', '--repo', elsewhere], { cwd: home, env });
   assert.equal(named.code, 1, named.stdout);
   assert.match(named.stderr, /not a git repository/);
@@ -2094,7 +2094,7 @@ test('the packed hooks say the version they were packed with', () => {
 test('the sync takes out what it no longer copies, and the temporary files of a sync that died', () => {
   const pruneStale = sync.pruneStale;
   assert.equal(typeof pruneStale, 'function', 'sync-hooks.mjs exports the prune it runs');
-  const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-sync-'));
+  const dest = tempDir('agentmash-sync-');
   // a process that has come and gone, the way a sync killed mid-copy has
   const died = spawnSync(process.execPath, ['-e', '']).pid;
   const running = `lib.mjs.${process.pid}.tmp`;
@@ -2113,7 +2113,7 @@ test('the sync takes out what it no longer copies, and the temporary files of a 
 test('the sync finds the packed files with CRLF line endings, and skips a binary one', () => {
   const crlfFiles = sync.crlfFiles;
   assert.equal(typeof crlfFiles, 'function', 'sync-hooks.mjs exports the line-ending check it runs');
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-eol-'));
+  const root = tempDir('agentmash-eol-');
   fs.mkdirSync(path.join(root, 'hooks', 'dialects'), { recursive: true });
   fs.writeFileSync(path.join(root, 'agentmash.mjs'), '#!/usr/bin/env node\nconsole.log(1);\n');
   fs.writeFileSync(path.join(root, 'hooks', 'lib.mjs'), 'export const a = 1;\r\nexport const b = 2;\r\n');
@@ -2328,7 +2328,7 @@ test('rotate against a server that has never heard of it says so plainly', async
 
 test('login stores the developer token outside the repo', async () => {
   const repo = makeRepo();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-home-'));
+  const home = tempDir('agentmash-cli-home-');
   const mock = await startMockServer();
   try {
     await run(['init', '--server', mock.url], { cwd: repo, env: { AGENTMASH_HOME: home } });
@@ -2355,7 +2355,7 @@ test('login stores the developer token outside the repo', async () => {
 
 test('login --room shows the code to type in the browser, and a sign-in turned down there says why', async () => {
   const repo = makeRepo();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-home-'));
+  const home = tempDir('agentmash-cli-home-');
   const signedIn = { status: 200, body: { token: 'amt_githubtokengithubtokengit', developer: 'bob', source: 'github' } };
   const denied = { status: 403, body: { code: 'denied', error: 'the code typed in the browser was not the one this terminal showed' } };
   const answers = [signedIn, denied];
@@ -2468,7 +2468,7 @@ test('secure sign-in against a server from before it says the server is too old,
 
 test('a sign-in the team’s plan has no seat for says so in the server’s words, and where to upgrade', async () => {
   const repo = makeRepo();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-home-'));
+  const home = tempDir('agentmash-cli-home-');
   const message =
     'acme is on the free plan, which covers 2 developers this month, and 2 have reported already. ' +
     'upgrade to the team plan to add bob: https://agentmash.dev/pricing';
@@ -2493,7 +2493,7 @@ test('a sign-in the team’s plan has no seat for says so in the server’s word
 test('doctor says a report turned away for want of a seat is the plan’s doing, with where to upgrade', async () => {
   const mock = await startMockServer();
   const repo = makeRepo();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-home-'));
+  const home = tempDir('agentmash-cli-home-');
   const env = { AGENTMASH_HOME: home, AGENTMASH_DEV: 'bob' };
   try {
     await run(['init', '--server', mock.url], { cwd: repo, env });

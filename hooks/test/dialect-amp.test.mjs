@@ -27,6 +27,7 @@ import createCall, { modifies as createModifies } from './fixtures/amp/tool-call
 import editCall, { modifies as editModifies } from './fixtures/amp/tool-call.edit_file.mjs';
 import readCall, { modifies as readModifies } from './fixtures/amp/tool-call.read.mjs';
 import resultOf from './fixtures/amp/tool-result.done.mjs';
+import { tempDir } from './tmp.mjs';
 
 const PLUGIN = path.join(HOOKS_DIR, '..', 'clients', 'amp', 'plugin.mjs');
 const { agentmash, EVENTS, default: unconfigured } = await import(pathToFileURL(PLUGIN).href);
@@ -85,7 +86,7 @@ async function load(fake, m, { hooksDir = HOOKS_DIR, env = {}, ...options } = {}
 
 /** A hooks folder whose agent_hook.mjs is `script`: for a hook that hangs, crashes, or answers what it never should. */
 function fakeHooks(script) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-amp-hooks-'));
+  const dir = tempDir('agentmash-amp-hooks-');
   fs.writeFileSync(path.join(dir, 'agent_hook.mjs'), script);
   return dir;
 }
@@ -243,8 +244,8 @@ test("what a shell command changed is reported as amp:Bash, from the working tre
   const server = await startServer();
   const m = machine(server.port);
   // a real checkout of acme/app: `git status` is what the hooks read
-  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-amp-repo-')));
-  const gitconfig = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-amp-git-')), 'gitconfig');
+  const repo = fs.realpathSync(tempDir('agentmash-amp-repo-'));
+  const gitconfig = path.join(tempDir('agentmash-amp-git-'), 'gitconfig');
   fs.writeFileSync(gitconfig, '');
   const gitEnv = { GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: '1' };
   const git = (...a) => execFileSync('git', a, { cwd: repo, env: { ...baseEnv, ...gitEnv }, stdio: 'ignore' });

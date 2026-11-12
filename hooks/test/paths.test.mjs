@@ -17,11 +17,12 @@ import path from 'node:path';
 // Namespace access, so a helper that does not exist yet fails its own tests
 // and not the whole file.
 import * as lib from '../lib.mjs';
+import { removeOnExit, tempDir } from './tmp.mjs';
 
 const WIN = process.platform === 'win32';
 
 /** A fresh directory, as the disk spells it. The prefixes carry a space, as "comp programming" does. */
-const tmp = (prefix) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+const tmp = (prefix) => fs.realpathSync(tempDir(prefix));
 
 /** A checkout: a .git directory with a HEAD, which is all these helpers read. */
 function checkout(prefix, branch = 'main') {
@@ -73,7 +74,7 @@ test('a file in another repository is not the room\'s, however its path is spell
   }
 
   // A directory whose name only starts with the project's is somewhere else.
-  const prefixSibling = `${sandbox}-researchquest`;
+  const prefixSibling = removeOnExit(`${sandbox}-researchquest`);
   fs.mkdirSync(prefixSibling);
   assert.equal(lib.toRepoRelative(sandbox, touch(prefixSibling, 'a.ts')), null, 'a shared prefix is not a directory');
 

@@ -27,6 +27,7 @@ import {
   resolveAck,
   writeSessionCache,
 } from '../lib.mjs';
+import { tempDir } from './tmp.mjs';
 
 const HOOKS_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
@@ -47,7 +48,7 @@ const baseEnv = {
   ...Object.fromEntries(
     Object.entries(process.env).filter(([k]) => !k.startsWith('AGENTMASH_') && k !== 'CLAUDE_PROJECT_DIR')
   ),
-  AGENTMASH_HOME: fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-hooks-home-')),
+  AGENTMASH_HOME: tempDir('agentmash-hooks-home-'),
 };
 
 let sessionCounter = 0;
@@ -57,7 +58,7 @@ function freshSession() {
 }
 
 function makeProjectDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-hooks-test-'));
+  return tempDir('agentmash-hooks-test-');
 }
 
 /** Spawn a hook script exactly like Claude Code would: JSON on stdin, env, collect stdio. */
@@ -588,7 +589,7 @@ test('an edit says which checkout it was made in, by an id that names neither th
   const mock = await startMockServer();
   const first = makeProjectDir();
   const second = makeProjectDir();
-  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-hooks-other-machine-'));
+  const elsewhere = tempDir('agentmash-hooks-other-machine-');
   try {
     const post = (dir, env = {}) =>
       runHook('post_tool_use.mjs', { ...editStdin(dir, freshSession()), hook_event_name: 'PostToolUse' }, hookEnv(dir, mock.port, env));
@@ -2662,7 +2663,7 @@ test('the team note pairs each file with the prompt it was edited for, not the t
 });
 
 test('today\'s hooks beside a lib.mjs from before the prompt file still send each edit its prompt', async () => {
-  const vendored = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-oldlib-'));
+  const vendored = tempDir('agentmash-oldlib-');
   const oldLib = fs.readFileSync(path.join(HOOKS_DIR, 'lib.mjs'), 'utf8').split('// ── symbol extraction')[0];
   fs.writeFileSync(path.join(vendored, 'lib.mjs'), oldLib);
   for (const script of ['user_prompt_submit.mjs', 'pre_tool_use.mjs', 'post_tool_use.mjs', 'session_end.mjs']) {
@@ -3765,7 +3766,7 @@ test('a new hook beside an old lib.mjs still exits 0 and still reports the path'
   const projectDir = makeProjectDir();
   // Vendored hooks can drift apart in a partial merge. Simulate the worst
   // version of that: today's hook scripts, yesterday's lib.
-  const vendored = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-oldlib-'));
+  const vendored = tempDir('agentmash-oldlib-');
   const oldLib = fs
     .readFileSync(path.join(HOOKS_DIR, 'lib.mjs'), 'utf8')
     .split('// ── symbol extraction')[0];
@@ -3806,7 +3807,7 @@ test('a new hook beside an old lib.mjs still exits 0 and still reports the path'
 test('a new prompt hook beside an old lib.mjs still exits 0 and still reports the prompt', async () => {
   const mock = await startMockServer();
   const projectDir = makeProjectDir();
-  const vendored = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-oldlib-'));
+  const vendored = tempDir('agentmash-oldlib-');
   const oldLib = fs
     .readFileSync(path.join(HOOKS_DIR, 'lib.mjs'), 'utf8')
     .split('// ── symbol extraction')[0];
@@ -3842,7 +3843,7 @@ test('the heads-up beside a lib.mjs from before it says nothing and asks nothing
   // A partial merge, or a repository whose settings.json came up to date
   // before its scripts did: today's heads-up and session_start, an old lib.
   const projectDir = makeProjectDir();
-  const vendored = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-oldlib-'));
+  const vendored = tempDir('agentmash-oldlib-');
   const oldLib = fs.readFileSync(path.join(HOOKS_DIR, 'lib.mjs'), 'utf8').split('// ── symbol extraction')[0];
   fs.writeFileSync(path.join(vendored, 'lib.mjs'), oldLib);
   for (const script of ['prompt_note.mjs', 'session_start.mjs']) {
@@ -3892,7 +3893,7 @@ test('the heads-up and session_start beside a lib.mjs from before resolveConfig 
   // no buildTeamContext, and a script importing either by name dies linking,
   // with a stack trace in the agent's transcript, at every prompt.
   const projectDir = makeProjectDir();
-  const vendored = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-oldlib-'));
+  const vendored = tempDir('agentmash-oldlib-');
   const oldLib = fs
     .readFileSync(path.join(HOOKS_DIR, 'lib.mjs'), 'utf8')
     .split('// ── symbol extraction')[0]
@@ -3944,7 +3945,7 @@ test('the heads-up and session_start beside a lib.mjs from before resolveConfig 
 
 /** A checkout with a space in its path, as "comp programming" has. A .git with a HEAD is all the hooks read. */
 function makeCheckout(prefix, branch) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const dir = tempDir(prefix);
   fs.mkdirSync(path.join(dir, '.git'));
   fs.writeFileSync(path.join(dir, '.git', 'HEAD'), `ref: refs/heads/${branch}\n`);
   return dir;
@@ -4037,7 +4038,7 @@ test('an edit in this repository is reported on its own branch, wherever the age
 test('an edit in another worktree of this repository is reported from that worktree, on its branch', async () => {
   const mock = await startMockServer();
   const projectDir = makeCheckout('comp programming-agentmesh-', 'main');
-  const hero = fs.mkdtempSync(path.join(os.tmpdir(), 'comp programming-hero-'));
+  const hero = tempDir('comp programming-hero-');
   const gitDir = path.join(projectDir, '.git', 'worktrees', 'hero');
   fs.mkdirSync(gitDir, { recursive: true });
   fs.writeFileSync(path.join(gitDir, 'commondir'), '../..\n');
@@ -4098,7 +4099,7 @@ test('today\'s edit hooks beside a lib.mjs without locateInRepo keep this reposi
     '}',
     'function replacedToRepoRelative(',
   ].join('\n');
-  const vendored = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-oldlib-'));
+  const vendored = tempDir('agentmash-oldlib-');
   const oldLib = fs
     .readFileSync(path.join(HOOKS_DIR, 'lib.mjs'), 'utf8')
     .split('// ── symbol extraction')[0]
@@ -4355,7 +4356,7 @@ test('every event the hooks send matches the shape PROTOCOL.md §4 documents', a
 
 /** A machine that has run `agentmash login`: credentials in a fake home dir. */
 function makeHomeWithToken(url, roomRef, token) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-home-'));
+  const home = tempDir('agentmash-home-');
   fs.mkdirSync(path.join(home, '.agentmash'));
   fs.writeFileSync(
     path.join(home, '.agentmash', 'credentials.json'),
@@ -4375,7 +4376,7 @@ function writeRepoConfig(projectDir, config) {
 test('no developer token is sent when this machine has not enrolled', async () => {
   const mock = await startMockServer();
   const projectDir = makeProjectDir();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-home-'));
+  const home = tempDir('agentmash-home-');
   try {
     const result = await runHook(
       'post_tool_use.mjs',
@@ -4508,7 +4509,7 @@ function reportLog(home) {
   }
 }
 
-const makeHome = () => fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-report-home-'));
+const makeHome = () => tempDir('agentmash-report-home-');
 const postEdit = (projectDir, sessionId, extra = {}) => ({
   ...editStdin(projectDir, sessionId),
   hook_event_name: 'PostToolUse',
@@ -4806,13 +4807,13 @@ test("an apply_patch is checked and reported file by file, the files its patch t
 // Real repositories from here on: `git status` is what the hooks read. Git
 // reads the global config of whoever runs the tests (a global excludes file,
 // commit signing), so it gets an empty one, as cli/test/cli.test.mjs does.
-const EMPTY_GITCONFIG = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-hooks-git-')), 'gitconfig');
+const EMPTY_GITCONFIG = path.join(tempDir('agentmash-hooks-git-'), 'gitconfig');
 fs.writeFileSync(EMPTY_GITCONFIG, '');
 const gitEnv = { GIT_CONFIG_GLOBAL: EMPTY_GITCONFIG, GIT_CONFIG_NOSYSTEM: '1' };
 
 /** A committed repository with a space in its path, as "comp programming" has, and dist/ ignored. */
 function makeGitRepo() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'comp programming-worktree-')));
+  const dir = fs.realpathSync(tempDir('comp programming-worktree-'));
   const git = (...args) => execFileSync('git', args, { cwd: dir, env: { ...baseEnv, ...gitEnv }, stdio: 'ignore' });
   git('init', '-q');
   git('config', 'user.email', 'bob@example.com');
@@ -5346,7 +5347,7 @@ test('AGENTMASH_WORKTREE=0 or share_worktree false keeps files the agent did not
 test('today\'s edit hooks beside an old lib.mjs pass over a notebook and a command quietly', async () => {
   const mock = await startMockServer();
   const repo = makeGitRepo();
-  const vendored = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-oldlib-'));
+  const vendored = tempDir('agentmash-oldlib-');
   const oldLib = fs.readFileSync(path.join(HOOKS_DIR, 'lib.mjs'), 'utf8').split('// ── symbol extraction')[0];
   fs.writeFileSync(path.join(vendored, 'lib.mjs'), oldLib);
   for (const script of ['post_tool_use.mjs', 'user_prompt_submit.mjs']) {
@@ -5394,7 +5395,7 @@ test('a repository someone else owns is never run: git refuses it, and nothing f
   // GIT_TEST_ASSUME_DIFFERENT_OWNER makes git treat the planted repository as
   // another user's, which is what the real attack looks like.
   const mock = await startMockServer();
-  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'comp programming-planted-')));
+  const base = fs.realpathSync(tempDir('comp programming-planted-'));
   const planted = path.join(base, 'shared root');
   const project = path.join(planted, 'my project');
   fs.mkdirSync(project, { recursive: true });

@@ -85,10 +85,14 @@ async function main() {
   const entry = process.env.CLAUDE_CODE_ENTRYPOINT ?? '';
   const unwatched = /^sdk-/.test(entry) || entry === 'claude-code-github-action';
   const sharing = CLIENT || unwatched ? null : (lib.sharingNote?.(config) ?? null);
+  // The room's plan, in its own one line, from the free plan's agent-hour
+  // warning on (plan_note on /team): said to the person as the session
+  // starts, set once /team answers. A room that sends none says nothing.
+  let planNote = null;
   const done = (payload = null) => {
-    if (!payload && !sharing) return;
+    if (!payload && !sharing && !planNote) return;
     if (sharing) lib.noteSharingTold?.(config);
-    const said = sharing ? [payload?.systemMessage, sharing].filter(Boolean).join('\n') : payload?.systemMessage;
+    const said = [payload?.systemMessage, sharing, planNote].filter(Boolean).join('\n');
     emitAndExit({ ...payload, ...(said ? { systemMessage: said } : {}) });
   };
 
@@ -133,6 +137,10 @@ async function main() {
     lib.httpStatus ? lib.httpStatus('GET', teamUrl, asking) : null,
     lib.lobbyContext ? lib.lobbyContext(config, { developer, sessionId, branch, touched, timeoutMs }) : null,
   ]);
+  if (answer && answer.status >= 200 && answer.status < 300 && typeof answer.json?.plan_note === 'string') {
+    // printable text only, and short: it is the server's words, said to a terminal
+    planNote = answer.json.plan_note.replace(/[^\x20-\x7e\u00a0-\uffff]/g, ' ').slice(0, 400) || null;
+  }
   const keyPublic = lib.keyPublicNote?.(answer, config);
   if (keyPublic) {
     emitAndExit({ systemMessage: keyPublic, hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: keyPublic } });

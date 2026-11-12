@@ -6,11 +6,11 @@
 
 import http from 'node:http';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { SLOWNESS, timed, within } from '../../tools/test-timing.mjs';
+import { tempDir } from './tmp.mjs';
 
 export const HOOKS_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export const REF = 'rm_0123456789';
@@ -20,8 +20,8 @@ export const KEY = 'mash_agentsroomagentsroomagen';
 /**
  * A time limit a test holds a hook to, stretched on a slow or shared machine
  * (tools/test-timing.mjs, which the server's and the CLI's tests share):
- * AGENTMASH_TEST_SLOWNESS multiplies it where it is set (CI sets it on our
- * own runner, which shares its cores with agentmash.dev), 2 on CI without
+ * AGENTMASH_TEST_SLOWNESS multiplies it where it is set (CI sets it on a
+ * runner that shares its cores), 2 on CI without
  * it, 1 anywhere else. It stretches only how long a test waits, never what a
  * hook is told, but for the room's budget below.
  */
@@ -135,8 +135,8 @@ export function startServer({ holders = [HOLDER], claims = [], eventsDelayMs = 0
  * of its own (`npx agentmash init`) and a home that never signed in.
  */
 export function machine(port, { committed = false } = {}) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-agents-home-'));
-  const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-agents-checkout-')));
+  const home = tempDir('agentmash-agents-home-');
+  const project = fs.realpathSync(tempDir('agentmash-agents-checkout-'));
   fs.mkdirSync(path.join(project, '.git'));
   fs.writeFileSync(path.join(project, '.git', 'HEAD'), 'ref: refs/heads/feat/login\n');
   fs.writeFileSync(path.join(project, '.git', 'config'), '[remote "origin"]\n\turl = git@github.com:acme/app.git\n');

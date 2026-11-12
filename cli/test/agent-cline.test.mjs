@@ -10,7 +10,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { AGENTS, agentPlaces } from '../tools.mjs';
@@ -18,6 +17,7 @@ import { clineHooks, hooksDirs } from '../agents/cline.mjs';
 import { CLI_DIR, command, json, machine, md5, run, startServer } from './fixtures/machine.mjs';
 // a room that answers /check, and a checkout signed in to it: the hooks' own test machine
 import { machine as checkout, session, startServer as startRoom } from '../../hooks/test/fixtures.mjs';
+import { tempDir } from './fixtures/tmp.mjs';
 
 // The module is called in this process too: a developer's own Cline settings must not be what it reads.
 for (const name of AGENTS.cline.env) delete process.env[name];
@@ -481,9 +481,9 @@ test('the hook files run as Cline runs them, and say go on when there is no node
     }
 
     // the node login ran under is gone, and there is none on the PATH: Cline is told to go on
-    const nodeless = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cline-nodeless-')), 'PreToolUse');
+    const nodeless = path.join(tempDir('agentmash-cline-nodeless-'), 'PreToolUse');
     fs.writeFileSync(nodeless, fs.readFileSync(m.at.ours('PreToolUse'), 'utf8').replace(/^node=".*"$/m, 'node="/nowhere/node"'), { mode: 0o755 });
-    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cline-path-'));
+    const empty = tempDir('agentmash-cline-path-');
     const gone = await runFile('/bin/sh', [nodeless], { input: payload, env: { PATH: empty, HOME: m.home } });
     assert.deepEqual([gone.status, gone.stdout], [0, '{"cancel":false}\n']);
   } finally {
@@ -492,9 +492,9 @@ test('the hook files run as Cline runs them, and say go on when there is no node
 });
 
 test('on Linux the hooks also go where VS Code takes Documents to be; on Windows none are written', () => {
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cline-dirs-')));
+  const home = fs.realpathSync(tempDir('agentmash-cline-dirs-'));
   fs.mkdirSync(path.join(home, '.cline'));
-  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cline-bin-'));
+  const bin = tempDir('agentmash-cline-bin-');
   const places = { ...agentPlaces(), home, toolPath: bin, vscodeUser: path.join(home, 'Code', 'User') };
   const env = { XDG_CONFIG_HOME: path.join(home, '.config') };
   const documents = path.join(home, 'Documents', 'Cline', 'Hooks');

@@ -292,6 +292,7 @@ a personal token (`amp_`) only reads, and sets its own profile unless it is held
 | `GET /api/v1/lobby/members` | person, room ref | everyone the room opens to: online or not, and their sessions at work |
 | `GET /api/v1/lobby/members/{login}/activity` | person, room ref | a teammate's last 7 days in every room you are both in |
 | `GET /api/v1/lobby/plan` | person, room ref | the plan the room bills to, its seats here and its notices, for the app's settings; the subscription's status and the account's seats only to whoever may read its plan; an upgrade link only on a free plan where plans are counted |
+| `GET /api/v1/lobby/agent-hours` | person, room ref | the room's agent-hours this month, for the app's meter: the plan and its terms, and on free with an hour limit `agent_hours` (used of 40, warning at 32, the ceiling at 50, `state` ok, warning, exhausted or ceiling, when they reset), this room's people and agents by name, the account's other rooms as minutes alone, and `you`, where you stand as the heartbeat judges it; `upgrade_url` and `checkout_url`, both null with billing off. It only reads |
 | `GET /api/v1/lobby/profile`, `PUT /api/v1/lobby/profile` | person, no room | your display name: `{ "display_name": "Damir I." }`, or `null` for your login |
 | `PUT /api/v1/lobby/profile/avatar`, `DELETE /api/v1/lobby/profile/avatar` | person, no room | your picture: the image itself as the body |
 | `GET /api/v1/lobby/avatars/{login}/{hash}` | none | a picture, by the link `avatar_url` gives |
@@ -395,9 +396,9 @@ only one of you is. The next page is `before=` its `next_before` and `before_id=
 "files", "commit", "state", "peer" }`, `kind` one of `session_started`, `session_ended`, `edit`,
 `commit`, `branch` (its `state`: `open`, `merged`, `landed` or `gone`), `claim`, `claim_released`
 and `request`. It is made from what each room keeps already, for as long as it keeps it. A request
-says who asked whom and how far it got, never its words, and only to its two people unless the hive
-made it; a prompt only as the room's feed quotes it, its first line. 404 `not_found` for someone
-not in this room.
+says who asked whom and how far it got, never its words, and only to its two people unless that
+room's own hive made it; a prompt only as the room's feed quotes it, its first line. 404 `not_found`
+for someone not in this room.
 
 **Profiles.** `GET` and `PUT /api/v1/lobby/profile` answer `{ "login", "display_name",
 "display_name_set", "avatar_url", "avatar", "updated_at" }`, `avatar` being `uploaded` or `github`.
@@ -405,7 +406,7 @@ A display name is trimmed, then 1 to 40 characters on one line, with no control 
 a person can't see, blank fillers like U+3164 and U+2800 among them (400 `invalid_display_name`);
 `null` goes back to your login. It never reads as the GitHub login of someone in a room with you, or
 invited to one, fullwidth, any case, or with spaces, dots and underscores taken out (400
-`invalid_display_name`: "a display name can’t be a GitHub login other than yours"); one chosen
+`invalid_display_name`: "that’s a teammate’s GitHub username"); one chosen
 before that person shared a room with you is shown there as your login instead. It is not unique and
 never an identity: a lobby shows `@login` beside it wherever someone acts on it, the hive's author,
 a request's sender and every approval prompt. A picture is the image itself as the body of `PUT
@@ -427,6 +428,299 @@ lobby client that sends `x-agentmash-lobby-features` with `profiles`, `owner_dis
 /api/v1/lobby`, and `author_display_name` and `author_avatar_url` on each hive message. Another
 name of someone's (a git email their signed-in machine reported under) is shown as them; any other
 name that is no login (a git email sent with a room key alone) as itself, with no picture.
+
+## Spaces (the lobby)
+
+What the lobby app's spaces screen runs on: a team's project under one name, its rooms (a
+repository each, in their order, the first one home, where its chat lives) and the people on it.
+Every write takes a machine's sign-in (`amu_`): a personal token reads, and never changes a space
+(403 `machine_token_required`), and a room key is no person (403 `person_required`). No room is
+named; every answer is `no-store`.
+
+| Method and path | Credential | What it does |
+| --- | --- | --- |
+| `GET /api/v1/lobby/spaces` | person | `{ "you", "spaces": [Space] }`: the spaces you are in and open a room of, newest `active_at` first, 50 at most |
+| `GET /api/v1/lobby/spaces/repos` | person | `{ "you", "repos": [{ "repo", "room_ref", "label", "you_open", "you_can_push", "by_invite" }] }`: the rooms you open, then the repositories you can push to with no room yet (`room_ref` null) |
+| `GET /api/v1/lobby/spaces/{id}` | person | `{ "space" }`: one space, as you see it |
+| `POST /api/v1/lobby/spaces` | machine | `{ "name", "description", "rooms": ["rm_…"], "members": ["login"] }`: make one, the first room home. 201 `{ "space", "invites" }` |
+| `PATCH /api/v1/lobby/spaces/{id}` | machine | `{ "name" }`, `{ "description" }` or both: any member renames it. `{ "space" }` |
+| `DELETE /api/v1/lobby/spaces/{id}` | machine | its maker deletes it (once the maker left, anyone who manages it); its rooms stay. 204 |
+| `POST /api/v1/lobby/spaces/{id}/rooms` | machine | `{ "room_ref" }`: add a room you open, last. `{ "space" }` |
+| `DELETE /api/v1/lobby/spaces/{id}/rooms/{room_ref}` | machine | take a room out, never the last; home moves to the first left. `{ "space" }` |
+| `PUT /api/v1/lobby/spaces/{id}/home` | machine | `{ "room_ref" }`: make another of its rooms home. `{ "space" }` |
+| `POST /api/v1/lobby/spaces/{id}/members` | machine | `{ "login" }`: add someone, invited to each room they don't open. `{ "space", "invites" }` |
+| `DELETE /api/v1/lobby/spaces/{id}/members/{login}` | machine | your own login leaves it; someone else's is taken out. `{ "space" }`, `null` once you left it or it went with its last member |
+| `GET /api/v1/lobby/spaces/{id}/canvas` | person | `{ "canvas": { "space_id", "version", "positions" } }`: where its agents and groups sit, the positions you may see |
+| `PATCH /api/v1/lobby/spaces/{id}/canvas` | machine | `{ "moves": [{ "key", "x", "y" }] }`: move nodes, as one version. `{ "version", "positions" }` |
+| `GET /api/v1/lobby/spaces/{id}/canvas/context` | person | `{ "context": { "space_id", "version", "items", "wires" } }`: the context on its canvas you may see, items without their text |
+| `GET /api/v1/lobby/spaces/{id}/canvas/items/{item_id}` | person | `{ "item" }`: one item whole, with its `text` |
+| `POST /api/v1/lobby/spaces/{id}/canvas/items` | machine | `{ "kind", "title", "text", "room_ref", "path", "task_id", "at" }`: put an item on its canvas. 201 `{ "item", "version", "position" }` (200 for a task's item that was there) |
+| `PATCH /api/v1/lobby/spaces/{id}/canvas/items/{item_id}` | machine | `{ "title" }`, `{ "text" }` or both: change one. `{ "item", "version", "position" }` |
+| `DELETE /api/v1/lobby/spaces/{id}/canvas/items/{item_id}` | machine | take one off, with its wires and its place. `{ "version", "removed": { "items", "wires" } }` |
+| `POST /api/v1/lobby/spaces/{id}/canvas/wires` | machine | `{ "item_id", "room_ref", "session_id", "delivery" }`: give an item to an agent. 201 `{ "wire", "version" }` |
+| `PATCH /api/v1/lobby/spaces/{id}/canvas/wires/{wire_id}` | machine | `{ "state": "delivered" }` or `{ "inbox_message_id" }`: say how far it got. `{ "wire", "version" }` |
+| `DELETE /api/v1/lobby/spaces/{id}/canvas/wires/{wire_id}` | machine | take an item off an agent. `{ "version", "removed": { "items", "wires" } }` |
+
+A `Space` is `{ "id": "sp_…", "name", "description", "created_by", "created_at", "updated_at",
+"version", "home_room_ref", "rooms": [{ "room_ref", "repo", "label", "home", "you_open",
+"you_can_invite", "invite_waiting" }], "members": [{ "login", "display_name", "avatar_url",
+"is_you", "online", "last_online_at", "added_by", "added_at", "rooms_open", "invites_waiting" }],
+"you_can_manage", "you_can_delete", "live": { "agents", "working", "waiting" }, "active_at" }`.
+`version` is 1 when it is made and one more on every change; a write that changes nothing (a room
+or a person added who is in it already, or taken out who isn't) answers the space as it is.
+
+**Who sees one.** A member, while they open one of its rooms: GitHub says, as fresh as a member's
+sign-in, that they can push to its repository, or they joined its room by an invite that holds.
+Worked out on every read, never kept. A space you are not in, or open none of the rooms of, is 404
+`space_not_found`, the same as one that isn't there. A room's repository and label are told only
+to a member who opens it or has an invite to it waiting; to anyone else it is its `room_ref` alone
+(`repo` and `label` null). The rest only from the rooms you open: `live` and `active_at`, and of the other
+members whether they are online, which of those rooms they open (`rooms_open`) and where an invite
+waits for them (`invites_waiting`). A personal token held to repositories opens only those
+repositories' rooms here, and sees no space without one of them.
+
+**Who changes one.** Any member renames it or changes its description. Someone who can push to its
+home room's repository manages it (`you_can_manage`): adds and takes out rooms and people, and
+moves home (403 `cannot_manage_space` for anyone else); moving home to a repository you can't push
+to hands that over. Its maker deletes it, and once the maker left, anyone who manages it (403
+`cannot_delete_space`). Anyone leaves; the last one out takes it with them. Deleting a room takes it
+out of every space it was in: home moves to the first room left, and a space with none left goes.
+
+**Rules.** A name is 1 to 60 characters after NFC and trimming, on one line, with none a person
+can't see; a description 280 at most, line breaks allowed, no other control character and none a
+person can't see: 400 `invalid_space`, whose `error` says what is wrong in words to show as they
+are (and so is a home that isn't one of its rooms). A room you add is one you open (403
+`room_not_open`, for one that isn't there too), connected to a repository (409
+`room_not_connected`). 8 rooms and 200 people a space (409 `space_full`), and one room at least
+(409 `last_room`). 50 spaces a person sees (is in and opens a room of: one of rooms they don't
+open costs nothing, so nobody fills someone's list with spaces they can't find or leave) and 20
+made a person an hour, deleted ones counted (429 `space_limit`, with `Retry-After` for the hour's).
+
+**Adding people.** A login named on `POST /api/v1/lobby/spaces`, or added after, is a member at
+once, whatever its invites say, and is invited to each room of the space they don't open, each
+under the rules and limits of `POST /api/v1/lobby/invites`: `invites` is one `{ "login",
+"room_ref", "outcome", "code", "error" }` a login and a room, `outcome` being `in` (they open it
+already), `invited`, `waiting` (one waited already), `vouched` (a member by invite already, whom you
+vouch for from now) or `refused`, with that route's `code` and `error` (`cannot_invite` for a room
+you can't push to, `seat_limit`, `invite_limit`, `closed`…). In a room of the space you don't open
+it is `refused` with `cannot_invite` and words that name no repository, before anything about who is
+in that room is looked at: adding someone and taking them out again never says who is in a room you
+can't open. A refusal fails nothing else. Your own
+login is left out. Being a member opens no room, and nothing is emailed.
+
+Each change leaves a row in its home room's audit trail, naming the space by its id and a room or a
+login, never its name or its description: `space_created`, `space_renamed`, `space_room_added`,
+`space_room_removed`, `space_home_moved`, `space_member_added`, `space_member_removed`,
+`space_left`, `space_deleted`.
+
+**Hearing of a change.** A space has no stream of its own: a lobby stream
+(`GET /api/v1/lobby/stream`) whose client sends `x-agentmash-lobby-features` with `spaces` is
+told `space_changed` `{ "type", "space_id", "version", "removed" }` each time a space its person
+is in changes, on a stream to one of its rooms. Both as they were before the change and are after: the
+person taken out hears of it, and so does a stream to the room taken out. The id and the new
+version, nothing else: read the space again to see what changed (404 `space_not_found` then means
+it is no longer yours to see). `removed` is true once it is gone: deleted, left by the last of its
+people, or with its last room deleted. A person with streams to two of its rooms hears it on each;
+a write that changes nothing tells nothing, and nothing is replayed to a stream opened later.
+
+**Its canvas.** Where the lobby app's canvas page puts a space's agents and its people's groups:
+positions only, each `{ "key", "x", "y", "version", "updated_at" }`. A key is `a:<room_ref>:<session_id>`
+for an agent (its place inside its person's group) or `g:<login>` for a person's group (its place
+on the canvas, the login lowercased); `x` and `y` are whole numbers within ±1,000,000. Every write
+is one more `version` of the space's canvas (0 before the first), each position keeping the
+version it was written at, and the last write wins, key by key. You see an agent's position when
+you open its room, and a group's when its person is a member of the space or opens one of its
+rooms you open: nothing of a room you don't open. A write carries 1 to 100 moves, each key once
+(400 `invalid_canvas`); every agent must be in a room of the space you open and every group
+someone you may see, or the whole write is 403 `room_not_open`, in words that name no room.
+Whether a session is still there isn't asked. A space keeps 1000 positions, the one moved longest
+ago going first (never one the same write put), and 4 MiB, each position counted as its key's
+length and 80 bytes (409 `canvas_full`). Only a position you may move goes to make room: an agent
+of a room you don't open and the group of someone you may not see stay, and a write they leave
+no room for is 409 `canvas_full` with nothing written. Positions go with the space, and a room's go once it is
+taken out of the space or deleted. A lobby stream whose client sends `canvas` in
+`x-agentmash-lobby-features` is told `canvas` `{ "type", "space_id", "version", "positions" }`
+each time a space its person is in is written to, on a stream to one of its rooms, with only the
+positions they may see, and nothing when none is left. Moves have a rate limit of their own
+([below](#rate-limits)). A free context item's position (`i:<item_id>`, below) is seen and moved
+with its item, never pushed out to make room, and only a client that sends `canvas_items` is told
+one, on `GET …/canvas` or the stream.
+
+**Its context.** What people put on a space's canvas for agents to read, and the agents each was
+given to. An item is `{ "id": "ci_…", "kind", "title", "room_ref", "path", "task", "bytes",
+"lines", "preview", "added_by", "created_at", "updated_by", "updated_at", "version" }`, and
+`text` too when it is read alone: a `note` (typed or pasted), a `file` (a text file's text), a
+`repo_file` (a file of a repository: its room and its `path` from the repository's top) or a
+`task` of the space (`task` is `{ "id", "number", "title", "status" }`, and its name, text and
+status are the task's, read as they are now). A name is a file name of 200 characters at most on
+one line, a note's made from its first line when none is given (`release-notes-for-0-43.md`), a
+repository file's its path's last part. Text is up to 64 KB of UTF-8, kept as cleaned (a leading
+BOM off, every line end as `\n`, spaces at line ends and blank lines at both ends off) and refused
+with characters a person can't see and control characters but line breaks and tabs: 400
+`invalid_item`, whose `error` says what is wrong in the words the lobby app shows. `preview` is its
+first 6 lines, 600 characters at most. `at` places an item on the canvas (its position
+`i:<item_id>`, written at the same version); one with none lives on the agents it is given to and
+goes with its last wire. A task's item made again is the one there, answered 200 (placed at `at`
+when it had none).
+
+A wire is `{ "id": "cw_…", "item_id", "room_ref", "session_id", "owner", "delivery", "state",
+"inbox_message_id", "made_by", "made_at", "state_at", "version" }`: an item given to a session
+live now in a room of the space you open (403 `room_not_open` otherwise). `own` gives it to your own
+agent: your lobby app hands it over with your next prompt on your machine and says so (`queued`,
+then `delivered`). `request` gives it to a teammate's agent that takes requests: your app sends a
+signed read-only suggestion through the inbox (whose body names the wire) and names it here once
+(`sending` until then); from then on the wire's `state` is the request's: `waiting` (pending or
+held), `approved`, `delivered` (delivered, running or done), `declined`, `expired` or `failed`.
+Nothing of an item reaches an agent from the server. An agent not at work there, one outside the
+lobby, `own` to someone else's agent, `request` to your own, to one that takes none, or to someone
+who isn't in the space or doesn't open the item's repository is 400 `invalid_wire`; the same item to the same agent 409
+`already_wired`; naming a request that isn't the wire's (another session's, someone else's, one
+that may do more than read, one declined, expired or failed, another wire's) 400 `invalid_wire`.
+
+**Who sees and changes it.** A member who opens one of the space's rooms sees every item with no
+room, and one of a room (a repository file, a task of a repository) while they open that room; a
+wire while they open its agent's room and see its item, and its `inbox_message_id` only when they
+made it or own the agent (null to anyone else). Anything else is 404 `item_not_found` or
+`wire_not_found`, the same as one that isn't there. Any member who sees an item changes and
+deletes it, the last write winning; a delete is 409 `item_wired` while someone else's wire of it is
+on its way (theirs `queued`, or a request `sending`, `waiting` or `approved`) and they are still in
+the space. Only a wire's maker
+changes it or takes it off (403 `wire_not_yours`); taking back the request it went as is the
+inbox's (`POST /api/v1/lobby/inbox/{id}/cancel`). Every write takes a machine's sign-in.
+
+**Limits.** 300 items a space (409 `items_full`); 20 agents an item and 1000 wires a space, and the
+document's 4 MiB, each item its text's and name's bytes and 200, each wire 120 (409
+`canvas_full`); 300 items made a person an hour in every space, deleted ones counted (429
+`canvas_limit`, with `Retry-After`).
+
+**What goes with what.** An item goes with its wires and its place; a task's with its task; a
+repository file's, and every wire to an agent of a room, once that room is taken out of the space or
+deleted; the wires someone gave once they leave the space or are taken out of it; all of it with the
+space. An item with no place goes with its last wire. A request a wire went as that goes with
+something else (not taken off by its maker) is taken back for them while nobody has approved it yet:
+`failed`, code `canceled`; an approved one stays approved.
+
+**Hearing of a change.** Every write of an item or a wire is one more `version` of the canvas, the
+positions' own, and so is each move of a request a wire went as. A lobby stream whose client sends
+`canvas_items` in `x-agentmash-lobby-features` is told `canvas_context` `{ "type", "space_id",
+"version", "items", "wires", "removed": { "items", "wires" } }` each time, with the items and wires
+of it its person may see now (never an item's text) and the ids that went that they saw, and
+nothing when none is left; an item placed with it is told as `canvas` too. A task deleted, a room
+taken out or deleted, someone gone from the space and the space deleted are one more version too
+when they take any of it, told as `canvas_context` with `removed` alone to each who saw what went
+(the space deleted: at the version after its last).
+
+## Tasks (the lobby)
+
+What the lobby app's Tasks page runs on: a space's tracker. A task has a short id of its space's
+(`T-12`), a title, a markdown description, a status, a priority, the people and agents on it, a due
+day, labels and a repository, and its activity: every change and every comment in one list. Reading
+takes a person's credential; every write a machine's sign-in (`amu_`): a personal token never
+changes a task (403 `machine_token_required`), and a room key is no person (403 `person_required`).
+No room is named; every answer is `no-store`. A space you are not in, or open none of the rooms of,
+is 404 `space_not_found`, as it is on the space's own routes.
+
+| Method and path | Credential | What it does |
+| --- | --- | --- |
+| `GET /api/v1/lobby/spaces/{id}/tasks` | person | `{ "space_id", "version", "tasks": [Task], "labels", "agent_writes" }`: every task you may see, in the space's order, without descriptions, 2000 at most |
+| `GET /api/v1/lobby/spaces/{id}/tasks/{task_id}` | person | `{ "version", "task" }`: one task whole, with its `description`, its newest 200 lines of `activity`, oldest first, and `activity_more` |
+| `POST /api/v1/lobby/spaces/{id}/tasks` | machine | `{ "title", "description", "status", "priority", "assignees", "due", "labels", "room_ref" }`, all but the title optional: make one. 201 `{ "version", "task" }` |
+| `PATCH /api/v1/lobby/spaces/{id}/tasks/{task_id}` | machine | any of those fields (`labels` as the whole list), `assign` and `unassign` (`[AssigneeRef]`), `after`: change one. `{ "version", "task" }` |
+| `POST /api/v1/lobby/spaces/{id}/tasks/{task_id}/comments` | machine | `{ "text" }`: comment on one. 201 `{ "version", "task" }` |
+| `DELETE /api/v1/lobby/spaces/{id}/tasks/{task_id}` | machine | delete one, whole and at once. 204 |
+| `POST /api/v1/lobby/spaces/{id}/tasks/{task_id}/undo` | machine | `{ "event_id" }`: undo an agent's line of one. `{ "version", "task" }` |
+
+A `Task` is `{ "id": "tk_…", "space_id", "number", "title", "status", "priority", "assignees",
+"due", "labels", "room_ref", "rank", "created_at", "created_by", "updated_at", "updated_by",
+"version", "comments", "has_description" }`. `status` is `backlog`, `todo` (a new task's unless
+said), `in_progress`, `in_review`, `done` or `canceled`; `priority` `urgent`, `high`, `medium`,
+`low` or `none`; `due` a day, `YYYY-MM-DD`, or null; `room_ref` its repository's room, or null for
+none. Someone on a task, or who changed it, is `{ "kind": "person", "login" }` or `{ "kind":
+"agent", "owner", "agent", "session_id", "session_name", "room_ref" }`; an `AssigneeRef` is `{
+"kind": "person", "login" }` (any case, a leading `@` fine) or `{ "kind": "agent", "session_id",
+"room_ref" }`. `number` is one more for each task of the space and never used again, so `T-12`
+stays T-12 after T-11 is deleted. `version` is the space's tracker version: one more on every
+write, 0 before its first task; a task keeps the one it was last written at.
+
+**Who sees a task.** A member of the space who opens one of its rooms sees every task with no
+repository, and a task with one only while they open its room (a personal token held to
+repositories, only theirs). Anyone else is told 404 `task_not_found`, the same as for a task that
+isn't there: a list never holds it, reading, changing, commenting on or deleting it says the same,
+and a stream never names it. An agent on a task, or one that changed it, keeps its owner and its
+kind for everyone who sees the task (its owner's Claude Code); its session, its name (the session's
+intent when it was put on) and its room only for a reader who opens its room, null for anyone else.
+A repository a line of activity names is its room's ref, null for a room no longer of the space that
+you don't open.
+
+**Who changes one.** Any member who sees a task changes it, comments on it and deletes it. What a
+`PATCH` leaves out stays; someone on already, or not on, changes nothing, and an agent of a room you
+don't open stays on. `after` is its place: right after that task of the space (one you may see,
+else 400 `invalid_task` in the same words as for a task that is gone), or null for before every
+one. A write that changes nothing answers the task as it is, at the version it is, keeps no line
+and tells nobody.
+
+**Rules.** A title is 1 to 200 characters after NFC and trimming, on one line; a description 32,000
+at most and a comment 1 to 4,000, line breaks and tabs allowed and no other control character; a
+label 1 to 32 characters on one line with no comma, 10 a task (the same one in another case once);
+a due day a real one; and nothing a person can't see in any of them. Each is 400 `invalid_task`,
+whose `error` says what is wrong in words to show as they are. Text is kept as written once its line
+ends are `\n` and its lines' trailing spaces and extra blank lines go; nothing else is ever stripped.
+Its repository is a room of the space you open (403 `room_not_open`, in words that name no room; one
+not in the space is `invalid_task`). A person on it is a member of the space who opens its room when
+it has one, and moving a task to a room someone on it doesn't open is refused; an agent on it is a
+session live now in a room of the space you open, its owner a GitHub login, kept as it was put on
+after the session ends. 10 people and agents a task. 2000 tasks a space (409 `tracker_full`) and
+300 made a person an hour, deleted ones counted (429 `tracker_limit`, with `Retry-After`). A person
+writes 30 comments a minute and makes 120 changes a minute, a change being a write that changed
+something (429 `rate_limited`, with `Retry-After`). Each count is a person's, in all spaces and
+from every sign-in.
+
+**History.** One line for each field a write changed: `title` with `from` and `to`, `description`
+(that it changed, not its text), `status`, `priority`, `due` and `repo` with `from` and `to`, `labels`
+with what was `added` and `removed`, `assigned` and `unassigned` with the `assignee`; a `comment`
+with its `text`; and `created` first. Each has its `id` (`te_…`), its `actor` and its `at`, and is
+kept as long as the task is. A deleted task goes whole, with who was on it and its activity, and its
+home room's audit trail keeps `task_deleted` with the space's and the task's ids, never a word of
+it. A task goes with its space, and with its repository's room when that is deleted; a room taken
+out of the space keeps its tasks, still shown only to who opens it.
+
+**Agents.** An agent writes tasks on its person's machine sign-in: the lobby app's daemon for the
+agents it hosts, the hooks' MCP server for one in a terminal, each with the same five MCP tools
+(`tasks_list`, `task_get`, `task_create`, `task_update` and `task_comment`; none deletes). Either
+sets two headers, never from what the agent asked: `x-agentmash-agent`, its kind (`claude`,
+`codex`…: from the agent's own token in the daemon, from the name its client gives at `initialize`
+in the hooks' server, `agent` for a name the lobby doesn't know), and `x-agentmash-agent-session`,
+its lobby session (the hooks' server sends the one the desktop app started it in,
+`AGENTMASH_LOBBY_SESSION`, and none outside it). The server makes who wrote: the agent
+with its session when that is your own session live now in a room of the space you open, else its
+kind alone with you as its owner, never someone else's agent. A kind that is no agent's, or a
+session with no kind, is 400 `invalid_task`; no header is you. An agent makes a task, changes one
+and comments on one, and puts on or takes off only itself (by its own session) and people, never
+another agent; a move in the order (`after`), a delete or an undo with an agent header is 403
+`agent_forbidden`. All of one person's
+agents together make 120 tasks an hour and 720 changes and comments an hour (429
+`agent_limit`, with `Retry-After`), and each of their writes counts toward the person's own counts
+too. The list's `"agent_writes": true` says a server takes them; one from before leaves it out.
+
+**Undo.** Any member who sees a task takes back an agent's line for 24 hours, unless what it changed
+changed again since: `POST …/undo` with the line's `event_id`. It is the undoer's own write, one
+more version with their lines, counted as their change: a field goes back to what it was, labels the
+agent added come off and ones it took off go back, someone it put on comes off and someone it took
+off goes back as they were, a description goes back to its text from before (kept 24 hours after an
+agent changes it, then dropped), and a comment comes out, its line gone and `comments` one less (the
+home room's audit trail keeps `task_comment_undone` with the space's, the task's and the line's ids,
+never a word). A line of another task is 400 `invalid_task`; 409 `cannot_undo` when the line isn't
+an agent's, is `created` (delete the task instead), is more than 24 hours old, or changed again since,
+its `error` saying which. Each line the server would undo now carries `undo_until`, when that ends.
+
+**Hearing of a change.** A lobby stream whose client sends `tasks` in
+`x-agentmash-lobby-features` is told `task` `{ "type", "space_id", "version", "task_id", "task",
+"events", "reordered", "removed" }` each time a task of a space its person is in is written, on a
+stream to one of its rooms: the task as that person sees it now, with the write's lines of its
+activity, or `task` null and no lines once it went for them (deleted, or moved to a room they don't
+open). Someone who could see it neither before nor after hears nothing. `reordered` says every rank
+of the space moved: read the list again. `removed`, when there, names lines gone from the task's
+activity (an agent's comment undone).
 
 ## Teammate requests (the inbox)
 
@@ -490,6 +784,8 @@ A sign-in is asked as its login; a room key opens it too, and `developer` says w
 `branch` puts teammates on that branch first, and `files` (paths, comma-separated) the people who
 changed what the asking session changed; `hook_session_id`, the agent's own session id, leaves
 that session out of the block. `max_chars` is its length at most, 200 to 8000, 2000 by default.
+`preview=1` says a person is looking at the block, not an agent being given it: the room keeps
+no row of whom it told about, and its feed shows nothing for it.
 
 ## Errors
 
@@ -505,22 +801,27 @@ your request, which names a route and never its address, a header or a body.
 
 | Status | Codes |
 | --- | --- |
-| 400 | `room_required`, `key_in_url`, `ambiguous_credentials`, `invalid_credentials`, `file_path_not_relative`, `invalid_request`, `invalid_login`, `self_invite`, `invalid_display_name`, `self_send`, `hop_limit`, `body_hidden_chars` |
+| 400 | `room_required`, `key_in_url`, `ambiguous_credentials`, `invalid_credentials`, `file_path_not_relative`, `invalid_request`, `invalid_login`, `self_invite`, `invalid_display_name`, `invalid_space`, `invalid_canvas`, `invalid_task`, `invalid_item`, `invalid_wire`, `self_send`, `hop_limit`, `body_hidden_chars` |
 | 401 | `room_unauthorized`, `reauth`, `signed_out`, `invalid_token`, `token_required`, `api_token_v1_only`, `unauthorized` |
-| 402 | `seat_limit`, from a server that enforces plans: the plan has no seat left (`upgrade_url` says where to upgrade) |
-| 403 | `insufficient_scope`, `token_repo_forbidden`, `machine_token_required`, `person_required`, `not_invited`, `cannot_invite`, `cannot_remove`, `not_invitee`, `not_inviter`, `not_recipient`, `not_sender`, `token_unverified`, `closed`, `room_key_required`, `room_key_public`, `sign_in_required`, `cross_site`, `forbidden` |
-| 404 | `not_connected`, `not_found`, `session_not_found`, `recipient_not_member`, `parent_not_found` |
-| 409 | `token_limit`, `device_key_required`, `room_not_connected`, `already_member`, `invite_closed`, `not_member_by_invite`, `duplicate`, `invalid_transition` |
+| 402 | From a server that enforces plans, `upgrade_url` saying where to upgrade: `seat_limit` (the plan has no seat left), `agent_hours_limit` (the free plan's agent-hours for the month are used and this is a new session; `resets_at` says when they come back), `repo_in_free_team` (the repository is connected to another free team's room) or `free_plan_sign_in` (on free, nobody GitHub vouched for sent it) |
+| 403 | `insufficient_scope`, `token_repo_forbidden`, `machine_token_required`, `person_required`, `not_invited`, `cannot_invite`, `cannot_remove`, `not_invitee`, `not_inviter`, `cannot_manage_space`, `cannot_delete_space`, `room_not_open`, `agent_forbidden`, `wire_not_yours`, `not_recipient`, `not_sender`, `token_unverified`, `closed`, `room_key_required`, `room_key_public`, `sign_in_required`, `cross_site`, `forbidden` |
+| 404 | `not_connected`, `not_found`, `session_not_found`, `recipient_not_member`, `parent_not_found`, `space_not_found`, `task_not_found`, `item_not_found`, `wire_not_found` |
+| 409 | `token_limit`, `device_key_required`, `room_not_connected`, `already_member`, `invite_closed`, `not_member_by_invite`, `space_full`, `last_room`, `canvas_full`, `tracker_full`, `cannot_undo`, `items_full`, `already_wired`, `item_wired`, `duplicate`, `invalid_transition` |
 | 410 | `room_deleted` |
 | 413, 415 | the body is too large; send JSON (`json_only`), or a picture that is PNG, JPEG or WebP (`unsupported_image`) |
 | 426 | `upgrade_required`: that address is a WebSocket |
-| 429 | `rate_limited`, `stream_limit`, `share_limit`, `invite_limit`, `inbox_full`, with `Retry-After` |
+| 429 | `rate_limited`, `stream_limit`, `share_limit`, `invite_limit`, `space_limit`, `tracker_limit`, `agent_limit`, `canvas_limit`, `inbox_full`, with `Retry-After` |
 
 ## Rate limits
 
 Counted per credential on `/api/v1`, in a fixed one-minute window: 1200 calls a minute to
 `/api/v1/check`, 600 to every other read and 600 writes, which is room for a fifty-file commit
-reported at once. Each answer carries `RateLimit-Limit`, `RateLimit-Remaining` and
+reported at once. Moves on a space's canvas (`PATCH /api/v1/lobby/spaces/{id}/canvas`) are
+counted apart, 1200 a minute, so dragging a node never spends the writes. A space's tasks have
+counts of their own, per person in all spaces: 300 made an hour, 30 comments and 120 changes a
+minute, and all of a person's agents together 120 made and 720 changes and comments an hour
+([Tasks](#tasks-the-lobby)). A person makes 300 context items an hour on spaces' canvases, in all
+spaces, deleted ones counted ([Its context](#spaces-the-lobby)). Each answer carries `RateLimit-Limit`, `RateLimit-Remaining` and
 `RateLimit-Reset`, and a 429 a `Retry-After`. The unversioned routes the hooks call keep a
 count of their own, far looser and with none of those headers: 6000 writes and 6000 calls to
 `/check` a minute per credential, past which they answer 429 `rate_limited` with a

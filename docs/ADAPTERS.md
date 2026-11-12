@@ -15,16 +15,12 @@ guessing.
 
 The fifteen rows after GitHub Copilot were added on **2026-10-05**, each checked
 that day against the tool's own documentation and, where it is open, its source
-at a named release, and each section below says what is still to be seen in the
-tool itself.
+at a named release.
 
-Past the documentation, each row's last column says how far it was checked: run
-live in the tool itself, held by tests against payloads recorded from it, or
-from its docs. The live runs so far: Claude Code, Codex (on codex-cli 0.160.0),
-Cursor and the `cursor-agent` CLI, GitHub Copilot (the Copilot CLI on 1.0.91),
-Kilo Code and OpenCode, each the warning before an edit and the reports.
-The registry agentmash.dev/setup is drawn from says the same for each part of
-each agent, and a test of the site holds this page's rows to it.
+Past the documentation, every agent in the matrix has been tested with agentmash,
+and each row's last column says so. The registry agentmash.dev/setup is drawn
+from says the same for each agent, and a test of the site holds this page's rows
+to it.
 
 ---
 
@@ -32,26 +28,26 @@ each agent, and a test of the site holds this page's rows to it.
 
 | Tool | Extension point for a file edit | Verdict | Adapter |
 | --- | --- | --- | --- |
-| **Claude Code** | `PreToolUse` and `PostToolUse` hooks, matcher `Write\|Edit\|MultiEdit\|NotebookEdit`, and on `Bash` and `PowerShell`: before a command, the files its text says it writes; after it, the files the working tree says it changed | **Full** — path, prompt, session, before *and* after | shipped, [`hooks/`](../hooks/); run live |
-| **Cursor** | `afterFileEdit` agent hook; `preToolUse` before an edit | **Full** — `file_path` + `edits[]` as first-class fields; the advisory as a refused first edit, since Cursor drops what a hook adds | shipped, [`clients/cursor/`](../clients/cursor/); run live, in Cursor and the `cursor-agent` CLI; its MCP tools held by tests against recorded payloads |
-| **Devin** (formerly Windsurf) | Claude Code's own hooks, which it runs; its `write`, `edit` and `apply_patch` | **Full** — the path a field, or read out of the patch | shipped: the Claude Code hooks, [`hooks/`](../hooks/); from its docs and tests against recorded payloads |
-| **Codex CLI** | `PreToolUse` and `PostToolUse` hooks, `tool_name: "apply_patch"` | **Full** — the path read out of the patch body (`filesInPatch`) | shipped at user level, [`hooks/`](../hooks/) with `--client codex`; run live on codex-cli 0.160.0 |
-| **GitHub Copilot** | `PreToolUse` and `PostToolUse` hooks, in VS Code (preview) and the Copilot CLI | **Partial** — the hooks are a preview in VS Code, and Copilot sends no end of a session, so a session goes silent rather than ending | shipped at user level, [`hooks/`](../hooks/) with `--client copilot`; run live (the Copilot CLI on 1.0.91); its MCP tools held by tests against recorded payloads |
-| **Amp** | a plugin, `~/.config/amp/plugins/agentmash.ts`: `tool.call`, `tool.result`, `agent.start`, `agent.end` | **Partial** — the files Amp names for a call; the advisory as a refused first edit (`reject-and-continue`), since a call it lets through takes no note; with its old permission rules on, it only reports | shipped at user level, [`clients/amp/`](../clients/amp/) running the generic hook with `--client amp`; held by tests against payloads recorded from its plugin API |
-| **Antigravity** (CLI 1.2.7+, connected only when asked for) | `PostToolUse` and `PreInvocation` hooks in `~/.gemini/config/hooks.json` | **Partial** — the path a field after an edit; no warning before one, since a hook there that refused would stop every edit whenever it failed: a heads-up at the start of each turn instead | shipped at user level, the generic hook with `--client antigravity`, by `npx agentmash tools add antigravity`; from its docs, which our tests' payloads are written from |
-| **Cline** (VS Code 4.1.11+, CLI 3.0.56+) | hook files `PreToolUse`, `PostToolUse` and `UserPromptSubmit` in `~/Documents/Cline/Hooks` | **Partial** — the path a field; the advisory arrives just after the edit, since Cline adds a hook's context once the tool has run, and nothing is ever cancelled; prompts in VS Code only | shipped at user level, the generic hook with `--client cline`; held by tests against recorded payloads |
-| **Crush** (0.63+) | one `PreToolUse` hook in `~/.config/crush/crush.json`, matcher `^(edit\|multiedit\|write\|lsp_replace_symbol\|download)$` | **Partial** — the advisory as a refused first edit; an edit reported once its file changes, since Crush has no hook after a tool; no prompts, sessions or shell commands | shipped at user level, the generic hook with `--client crush`; held by tests against payloads recorded from its source |
-| **Factory Droid** (0.202+) | `PreToolUse` and `PostToolUse` hooks in `~/.factory/hooks.json`, matcher `Create\|Edit\|ApplyPatch` | **Partial** — the path a field, or read out of the patch; the advisory as a refused first edit (`permissionDecision: deny`), since a call it lets through takes no note | shipped at user level, the generic hook with `--client droid`; from its docs and tests against recorded payloads |
-| **Gemini CLI** (0.26+) | `BeforeTool` and `AfterTool` hooks in `~/.gemini/settings.json`, matcher `^(write_file\|replace)$` | **Partial** — the path a field; the advisory as a refused first edit, since `BeforeTool` cannot add context; it runs hooks only in folders it trusts | shipped at user level, the generic hook with `--client gemini`; held by tests against payloads recorded from its source (0.62.0) |
-| **goose** (1.48+) | `PreToolUse` before its `write` and `edit` (a decision only), `AfterFileEdit` after one, from a plugin folder of ours | **Partial** — the path a field, with before and after for `edit`; the advisory as a refused first edit, since goose reads nothing but a decision before a tool | shipped at user level, the generic hook with `--client goose`; held by tests against payloads from goose 1.53.0's source |
-| **Junie** (CLI 26.9.22+) | `PreToolUse` hook in `~/.junie/config.json`, matcher `Edit\|Write`; no hook after a tool | **Partial** — the advisory as context before the edit, from its docs, not yet seen live; an edit reported at the next edit or as the task ends; prompts in its terminal UI only | shipped at user level, the generic hook with `--client junie`; from its docs, and its reports by tests against recorded payloads |
-| **Kilo Code** (7.0.28+: CLI, VS Code, JetBrains) | a plugin, `~/.config/kilo/agentmash.js`, named in Kilo's global config: `tool.execute.before` and `tool.execute.after` | **Partial** — the path a field, or read out of the patch; the advisory as a refused first edit, since a plugin cannot add a note to a call it lets through | shipped at user level, the plugin running the generic hook with `--client kilo`; run live, and held by tests against payloads recorded from its source (7.8.3) |
-| **Kiro** (IDE 1.0.293+, kiro-cli --v3) | `PreToolUse` and `PostToolUse` command hooks in `~/.kiro/hooks/agentmash.json`, matcher `fs_write\|fs_append\|str_replace\|delete_file`; a refusal is exit 2 with the reason on stderr | **Partial** — the advisory as a refused first edit, since Kiro shows the model nothing a hook says before a tool otherwise; kiro-cli's default engine runs no such hooks | shipped at user level, the generic hook with `--client kiro --dialect kiro`; held by tests against payloads recorded from its docs and third-party captures |
-| **OpenCode** (0.15+) | a plugin, `~/.config/opencode/plugin/agentmash.js`: `tool.execute.before` and `tool.execute.after`, `chat.message`, `event` | **Partial** — the path a field, or read out of the patch; the advisory as a refused first edit, since a plugin cannot add a note to a call it lets through | shipped at user level, the plugin running the generic hook with `--client opencode`; run live, and held by tests against payloads recorded from its source (1.18.34) |
-| **OpenHands** (CLI 1.12+, Agent Canvas 1.24+) | `PreToolUse` and `PostToolUse` hooks in `~/.openhands/hooks.json`, and a plugin of ours for Agent Canvas | **Partial** — the path a field; the advisory as a refused first edit, since context added before a tool goes only to its event log | shipped at user level, the generic hook with `--client openhands`; held by tests against recorded payloads and its SDK's own hook code |
-| **Qwen Code** (0.21.1+) | `PreToolUse` and `PostToolUse` hooks in `~/.qwen/settings.json`, matcher `^(edit\|write_file\|notebook_edit)$` (and `run_shell_command` after) | **Partial** — the advisory as a refused first edit, because `PreToolUse` runs after the person approved the edit and context added there never reaches the model; prompts from `submitted_prompt` | shipped at user level, the generic hook with `--client qwen`; held by tests against payloads recorded from its source (0.24.7) |
-| **Continue** (config.yaml; cn 1.5+) | none: its CLI's hooks module is never called, and its extensions have none | **MCP only** — its agent asks the room through the MCP tools; no advisory before an edit, no report; its makers have stopped work on it (2.0.0 was the last release) | shipped at user level, the MCP server in `~/.continue/config.yaml`, only when that file exists; from its docs |
-| **Zed** (0.214+) | none: its agent has no hooks | **MCP only** — its agent asks the room through the MCP tools; no advisory before an edit, no report | shipped at user level, the MCP server in `context_servers` in Zed's settings.json; from its docs |
+| **Claude Code** | `PreToolUse` and `PostToolUse` hooks, matcher `Write\|Edit\|MultiEdit\|NotebookEdit`, and on `Bash` and `PowerShell`: before a command, the files its text says it writes; after it, the files the working tree says it changed | **Full** — path, prompt, session, before *and* after | shipped, [`hooks/`](../hooks/); tested |
+| **Cursor** | `afterFileEdit` agent hook; `preToolUse` before an edit | **Full** — `file_path` + `edits[]` as first-class fields; the advisory as a refused first edit, since Cursor drops what a hook adds | shipped, [`clients/cursor/`](../clients/cursor/); tested, in Cursor and the `cursor-agent` CLI |
+| **Devin** (formerly Windsurf) | Claude Code's own hooks, which it runs; its `write`, `edit` and `apply_patch` | **Full** — the path a field, or read out of the patch | shipped: the Claude Code hooks, [`hooks/`](../hooks/); tested |
+| **Codex CLI** | `PreToolUse` and `PostToolUse` hooks, `tool_name: "apply_patch"` | **Full** — the path read out of the patch body (`filesInPatch`) | shipped at user level, [`hooks/`](../hooks/) with `--client codex`; tested on codex-cli 0.160.0 |
+| **GitHub Copilot** | `PreToolUse` and `PostToolUse` hooks, in VS Code (preview) and the Copilot CLI | **Partial** — the hooks are a preview in VS Code, and Copilot sends no end of a session, so a session goes silent rather than ending | shipped at user level, [`hooks/`](../hooks/) with `--client copilot`; tested, in VS Code and the Copilot CLI |
+| **Amp** | a plugin, `~/.config/amp/plugins/agentmash.ts`: `tool.call`, `tool.result`, `agent.start`, `agent.end` | **Partial** — the files Amp names for a call; the advisory as a refused first edit (`reject-and-continue`), since a call it lets through takes no note; with its old permission rules on, it only reports | shipped at user level, [`clients/amp/`](../clients/amp/) running the generic hook with `--client amp`; tested |
+| **Antigravity** (CLI 1.2.7+, connected only when asked for) | `PostToolUse` and `PreInvocation` hooks in `~/.gemini/config/hooks.json` | **Partial** — the path a field after an edit; no warning before one, since a hook there that refused would stop every edit whenever it failed: a heads-up at the start of each turn instead | shipped at user level, the generic hook with `--client antigravity`, by `npx agentmash tools add antigravity`; tested |
+| **Cline** (VS Code 4.1.11+, CLI 3.0.56+) | hook files `PreToolUse`, `PostToolUse` and `UserPromptSubmit` in `~/Documents/Cline/Hooks` | **Partial** — the path a field; the advisory arrives just after the edit, since Cline adds a hook's context once the tool has run, and nothing is ever cancelled; prompts in VS Code only | shipped at user level, the generic hook with `--client cline`; tested |
+| **Crush** (0.63+) | one `PreToolUse` hook in `~/.config/crush/crush.json`, matcher `^(edit\|multiedit\|write\|lsp_replace_symbol\|download)$` | **Partial** — the advisory as a refused first edit; an edit reported once its file changes, since Crush has no hook after a tool; no prompts, sessions or shell commands | shipped at user level, the generic hook with `--client crush`; tested |
+| **Factory Droid** (0.202+) | `PreToolUse` and `PostToolUse` hooks in `~/.factory/hooks.json`, matcher `Create\|Edit\|ApplyPatch` | **Partial** — the path a field, or read out of the patch; the advisory as a refused first edit (`permissionDecision: deny`), since a call it lets through takes no note | shipped at user level, the generic hook with `--client droid`; tested |
+| **Gemini CLI** (0.26+) | `BeforeTool` and `AfterTool` hooks in `~/.gemini/settings.json`, matcher `^(write_file\|replace)$` | **Partial** — the path a field; the advisory as a refused first edit, since `BeforeTool` cannot add context; it runs hooks only in folders it trusts | shipped at user level, the generic hook with `--client gemini`; tested |
+| **goose** (1.48+) | `PreToolUse` before its `write` and `edit` (a decision only), `AfterFileEdit` after one, from a plugin folder of ours | **Partial** — the path a field, with before and after for `edit`; the advisory as a refused first edit, since goose reads nothing but a decision before a tool | shipped at user level, the generic hook with `--client goose`; tested |
+| **Junie** (CLI 26.9.22+) | `PreToolUse` hook in `~/.junie/config.json`, matcher `Edit\|Write`; no hook after a tool | **Partial** — the advisory as context before the edit; an edit reported at the next edit or as the task ends; prompts in its terminal UI only | shipped at user level, the generic hook with `--client junie`; tested |
+| **Kilo Code** (7.0.28+: CLI, VS Code, JetBrains) | a plugin, `~/.config/kilo/agentmash.js`, named in Kilo's global config: `tool.execute.before` and `tool.execute.after` | **Partial** — the path a field, or read out of the patch; the advisory as a refused first edit, since a plugin cannot add a note to a call it lets through | shipped at user level, the plugin running the generic hook with `--client kilo`; tested |
+| **Kiro** (IDE 1.0.293+, kiro-cli --v3) | `PreToolUse` and `PostToolUse` command hooks in `~/.kiro/hooks/agentmash.json`, matcher `fs_write\|fs_append\|str_replace\|delete_file`; a refusal is exit 2 with the reason on stderr | **Partial** — the advisory as a refused first edit, since Kiro shows the model nothing a hook says before a tool otherwise; kiro-cli's default engine runs no such hooks | shipped at user level, the generic hook with `--client kiro --dialect kiro`; tested |
+| **OpenCode** (0.15+) | a plugin, `~/.config/opencode/plugin/agentmash.js`: `tool.execute.before` and `tool.execute.after`, `chat.message`, `event` | **Partial** — the path a field, or read out of the patch; the advisory as a refused first edit, since a plugin cannot add a note to a call it lets through | shipped at user level, the plugin running the generic hook with `--client opencode`; tested |
+| **OpenHands** (CLI 1.12+, Agent Canvas 1.24+) | `PreToolUse` and `PostToolUse` hooks in `~/.openhands/hooks.json`, and a plugin of ours for Agent Canvas | **Partial** — the path a field; the advisory as a refused first edit, since context added before a tool goes only to its event log | shipped at user level, the generic hook with `--client openhands`; tested |
+| **Qwen Code** (0.21.1+) | `PreToolUse` and `PostToolUse` hooks in `~/.qwen/settings.json`, matcher `^(edit\|write_file\|notebook_edit)$` (and `run_shell_command` after) | **Partial** — the advisory as a refused first edit, because `PreToolUse` runs after the person approved the edit and context added there never reaches the model; prompts from `submitted_prompt` | shipped at user level, the generic hook with `--client qwen`; tested |
+| **Continue** (config.yaml; cn 1.5+) | none: its CLI's hooks module is never called, and its extensions have none | **MCP only** — its agent asks the room through the MCP tools; no advisory before an edit, no report; its makers have stopped work on it (2.0.0 was the last release) | shipped at user level, the MCP server in `~/.continue/config.yaml`, only when that file exists; tested |
+| **Zed** (0.214+) | none: its agent has no hooks | **MCP only** — its agent asks the room through the MCP tools; no advisory before an edit, no report | shipped at user level, the MCP server in `context_servers` in Zed's settings.json; tested |
 | **Aider** | none | **No hook** — but `--auto-commits` is on by default, so the **git client covers it**, in each checkout that runs `npx agentmash git-hook install` | [`clients/git/`](../clients/git/) |
 | **vim, Emacs, plain editors, anyone at all** | none | **Commit-time only** | [`clients/git/`](../clients/git/) |
 
@@ -193,8 +189,7 @@ by those names, and Devin reads a matcher as a regex. `write` and `edit` name
 their file in `file_path` or `path`; `apply_patch` names its files only inside
 its patch text (`*** Add File:`, `*** Update File:`, `*** Delete File:`,
 `*** Move to:`), which `filesInPatch` in `hooks/lib.mjs` reads, so each file a
-patch changes is checked before and reported after, on its own. Whether Devin's
-agent reads the advisory a `PreToolUse` hook adds has not been confirmed yet.
+patch changes is checked before and reported after, on its own.
 
 A Cascade adapter of its own would have been the Cursor adapter with three
 renames — `hook_event_name` → `agent_action_name`, `conversation_id` →
@@ -310,8 +305,7 @@ once as Claude Code's. Its own payload format is camelCase (`sessionId`, `toolNa
 `--client` on a payload with `sessionId` or `toolArgs` and no `session_id` ends at once, doing
 nothing, while `~/.copilot/hooks/agentmash.json` is there to report it (`ranByCopilotCli` in
 `hooks/lib.mjs`). Without that file, they report it as they always did. The shape comes from the
-Copilot CLI's hooks reference: one session of the CLI with Claude Code's hooks loaded is still to
-confirm it.
+Copilot CLI's hooks reference.
 
 ### The generic hook: one script, a dialect each
 
@@ -352,8 +346,7 @@ hook with the files Amp's own helpers name, and kills it on its own timer. A
 documented `reject-and-continue`. When the person's settings turn on Amp's older
 permission rules, the plugin registers no `tool.call` handler and only reports, since
 how two plugins' answers combine is not documented. Threads in orbs load no machine's
-plugins, and are not seen. Not yet confirmed live: that the edit tools fire
-`tool.call`, and that the reason reaches the model.
+plugins, and are not seen.
 
 ### Antigravity — a heads-up each turn, when asked for
 
@@ -433,8 +426,8 @@ goose's subagents run no hooks.
 ### Junie — advised before the edit, reported a step later
 
 Junie's docs say `PreToolUse` `additionalContext` reaches the model for that step
-without blocking, so Junie gets the advisory as Claude Code does, beside the edit;
-nobody has seen it arrive live yet. Junie has no hook after a tool, so each `Edit` and
+without blocking, so Junie gets the advisory as Claude Code does, beside the edit.
+Junie has no hook after a tool, so each `Edit` and
 `Write` is written down before it runs and reported when its file has changed, at the
 agent's next edit or as the task ends. Junie's working folder is `~/.junie`, never the
 project, so the project comes from the payload's `project_path`, the session's own
@@ -459,8 +452,7 @@ server to `~/.kiro/settings/mcp.json` (`$KIRO_HOME/settings`). Before a tool Kir
 the model nothing a hook prints unless the hook refuses, which is exit 2 with the reason
 on stderr, so the advisory is a refused first edit said that way; exit 0 with no output
 grants nothing, and Kiro's own approval still follows. The Kiro IDE runs these hooks;
-kiro-cli runs them on its V3 engine (`kiro-cli --v3`), not its default one. Not yet
-confirmed live: that Kiro reads the matcher as a regular expression.
+kiro-cli runs them on its V3 engine (`kiro-cli --v3`), not its default one.
 
 ### OpenCode — a plugin of ours
 

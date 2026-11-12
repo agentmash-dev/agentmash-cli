@@ -14,6 +14,7 @@ import { pathToFileURL } from 'node:url';
 import { AGENTS, agentFiles, agentPlaces } from '../tools.mjs';
 import { opencodePlugin, opencodeServer, readJsonc } from '../agents/opencode.mjs';
 import { machine, md5, run, shownHere, startServer } from './fixtures/machine.mjs';
+import { tempDir } from './fixtures/tmp.mjs';
 
 /** `opencode --version`, as 1.18.34 prints it. */
 const OPENCODE = { opencode: `if (process.argv[2] === '--version') console.log('1.18.34');` };
@@ -308,7 +309,7 @@ test('what login writes for OpenCode is the same every time, names no version, a
   ]);
   // one export, a function, and nothing it needs beyond node's own modules
   assert.deepEqual([...plugin.matchAll(/^import .* from '([^']+)';$/gm)].map((m) => m[1]), ['node:child_process']);
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-opencode-')), 'agentmash.mjs');
+  const file = path.join(tempDir('agentmash-opencode-'), 'agentmash.mjs');
   fs.writeFileSync(file, plugin);
   const loaded = await import(pathToFileURL(file).href);
   assert.deepEqual(Object.keys(loaded), ['AgentMash']);

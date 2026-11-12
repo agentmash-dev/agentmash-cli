@@ -10,7 +10,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import * as lib from '../lib.mjs';
 import junie, { BESIDE_MS, WAITING_FOR_MS, filesInDiff, fingerprint, junieCall } from '../dialects/junie.mjs';
@@ -18,6 +17,7 @@ import { junieHooks } from '../../cli/agents/junie.mjs';
 import { eventsOf, machine, runHook, session, startServer, within } from './fixtures.mjs';
 import * as said from './fixtures/junie/session-events.mjs';
 import * as call from './fixtures/junie/tool-events.mjs';
+import { tempDir } from './tmp.mjs';
 
 /** The arguments login gives the generic hook for one of Junie's events, from the command it registers. */
 const registered = (junieEvent) => {
@@ -38,7 +38,7 @@ const run = (junieEvent, payload, env) => runHook('agent_hook.mjs', payload, env
  */
 function machineOf(port) {
   const m = machine(port);
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-junie-tmp-'));
+  const tmp = tempDir('agentmash-junie-tmp-');
   return { ...m, env: { ...m.env, TMPDIR: tmp, TEMP: tmp, TMP: tmp } };
 }
 const userTs = (m) => path.join(m.project, 'src', 'models', 'user.ts');

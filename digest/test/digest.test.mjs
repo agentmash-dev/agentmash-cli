@@ -2,7 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -10,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { aggregate, DEFAULTS, hotZones, shortNames } from '../src/aggregate.mjs';
 import { render, splitToLength } from '../src/render.mjs';
 import { telegramUrl } from '../src/net.mjs';
+import { tempDir } from './tmp.mjs';
 
 const CLI = path.join(path.dirname(path.dirname(fileURLToPath(import.meta.url))), 'agentmash-digest.mjs');
 const ROOM = 'mash_digestdigestdigest';
@@ -673,7 +673,7 @@ test('usage mistakes exit 2 and never touch the network', async () => {
   // Run from a folder outside any repo: from the suite's own cwd, a checkout
   // connected to a room (.claude/agentmash/config.json) would hand the CLI a
   // real room, and this case would read from it instead of stopping.
-  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'digest-no-room-'));
+  const outside = tempDir('digest-no-room-');
   try {
     const noRoom = await run(['--to', 'json'], { env: { HOME: '/nonexistent' }, cwd: outside });
     assert.equal(noRoom.code, 2);

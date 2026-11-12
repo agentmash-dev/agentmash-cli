@@ -11,7 +11,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { opencodePlugin } from '../../cli/agents/opencode.mjs';
@@ -20,6 +19,7 @@ import { HOOKS_DIR, eventsOf, machine, runHook, session, startServer, within } f
 import { after, bashArgs, bashResult, before, editArgs, editResult, patchArgs, patchResult, readArgs, writeArgs, writeResult } from './fixtures/opencode/tool-execute.mjs';
 import { chatMessage, chatMessageV1 } from './fixtures/opencode/chat-message.mjs';
 import { childCreated, sessionCreated, sessionDeleted, sessionIdle } from './fixtures/opencode/events.mjs';
+import { tempDir } from './tmp.mjs';
 
 /** deny-once's answer when it lets a call go on: no opinion, which is never an approval of what the person would be asked about. */
 const GO_ON = '{}\n';
@@ -38,7 +38,7 @@ process.env.PATH = [path.dirname(process.execPath), process.env.PATH].join(path.
  * package.json beside it as CommonJS, where OpenCode runs it under Bun.
  */
 async function plugin(m, { dir = HOOKS_DIR } = {}) {
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-opencode-plugin-'));
+  const folder = tempDir('agentmash-opencode-plugin-');
   const file = path.join(folder, 'agentmash.mjs');
   fs.writeFileSync(file, opencodePlugin(dir));
   Object.assign(process.env, m.env);
@@ -273,14 +273,14 @@ test('nothing that goes wrong refuses an edit or rejects a hook: no room, no hoo
 
   // a hook that says what is not its answer, or a refusal with no reason: go on
   for (const script of ['console.log("not json");\n', 'console.log(JSON.stringify({ decision: "deny" }));\n', 'process.exit(3);\n']) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-opencode-hooks-'));
+    const dir = tempDir('agentmash-opencode-hooks-');
     fs.writeFileSync(path.join(dir, 'agent_hook.mjs'), script);
     const odd = await plugin(m, { dir });
     await odd['tool.execute.before'](input, output);
   }
 
   // OpenCode waits on a plugin with no deadline of its own: a hook that never answers is let go after WAIT_MS
-  const hung = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-opencode-hooks-'));
+  const hung = tempDir('agentmash-opencode-hooks-');
   fs.writeFileSync(path.join(hung, 'agent_hook.mjs'), 'setInterval(() => {}, 1000);\n');
   const stuck = await plugin(m, { dir: hung });
   started = Date.now();

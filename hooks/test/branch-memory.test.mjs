@@ -15,17 +15,18 @@ import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as lib from '../lib.mjs';
+import { removeOnExit, tempDir } from './tmp.mjs';
 
 const HOOKS_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ROOM = 'mash_memorytestmemorytest';
 const FILE = 'deals/DealCard.tsx';
 
-const EMPTY_GITCONFIG = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-memory-git-')), 'gitconfig');
+const EMPTY_GITCONFIG = path.join(tempDir('agentmash-memory-git-'), 'gitconfig');
 fs.writeFileSync(EMPTY_GITCONFIG, '');
 const gitEnv = { GIT_CONFIG_GLOBAL: EMPTY_GITCONFIG, GIT_CONFIG_NOSYSTEM: '1' };
 const baseEnv = {
   ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('AGENTMASH_') && k !== 'CLAUDE_PROJECT_DIR')),
-  AGENTMASH_HOME: fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-memory-home-')),
+  AGENTMASH_HOME: tempDir('agentmash-memory-home-'),
   ...gitEnv,
 };
 // in-process calls (lib.ownerMergeCheck and the like) run git with this process's environment
@@ -40,7 +41,7 @@ function git(dir, ...args) {
 
 /** A repository on main with deals/DealCard.tsx committed, its path with a space as real ones have. */
 function repository(at = null) {
-  const dir = at ?? fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'comp programming-memory-')));
+  const dir = at ?? fs.realpathSync(tempDir('comp programming-memory-'));
   fs.mkdirSync(dir, { recursive: true });
   git(dir, 'init', '-q', '-b', 'main');
   git(dir, 'config', 'user.email', 'damir@example.com');
@@ -63,7 +64,7 @@ function commitFile(dir, file, text, message) {
 
 /** A bare origin and a clone of it, the clone's origin/HEAD pointing at main as clone writes it. */
 function cloned() {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'comp programming-origin-')));
+  const root = fs.realpathSync(tempDir('comp programming-origin-'));
   const seed = repository(path.join(root, 'seed'));
   git(root, 'clone', '-q', '--bare', seed, 'origin.git');
   git(root, 'clone', '-q', path.join(root, 'origin.git'), 'work');
@@ -418,7 +419,7 @@ test('a commit in a linked worktree with our hook but no worker of its own is re
   const server = await room();
   try {
     installGitClient(dir);
-    const tree = `${dir}-feature`;
+    const tree = removeOnExit(`${dir}-feature`);
     git(dir, 'worktree', 'add', '-q', '-b', 'feature', tree);
     const there = commitFile(tree, FILE, '// in the worktree\n', 'worktree work');
     assert.equal(await lib.reportCommits(configFor(server), tree, [there], { developer: 'damir', branch: 'feature' }), 1);

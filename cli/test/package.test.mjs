@@ -3,19 +3,19 @@
 // Everything here works from the built tarball rather than the checkout, because
 // the checkout hides the two ways publishing breaks: a file that never made it
 // into `files`, and hooks that quietly drift from the ones the web installer
-// commits. The install-plan module imported here is the server-side installer's
-// own code, so "byte-identical" is checked against the real thing.
+// commits. The web installer lives on the server, which isn't part of this
+// repository, so its file list is written out below.
 
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ROOM, startMockServer } from './mock-server.mjs';
 import { AGENTS } from '../tools.mjs';
+import { tempDir } from './fixtures/tmp.mjs';
 // The files the web installer on agentmash.dev commits into a repo (its
 // install-plan); listed here since the server isn't part of this repository.
 const HOOK_FILES = [
@@ -80,7 +80,7 @@ const EXPECTED_FILES = [
 // core.hooksPath (a ~/.githooks every repository shares) is where init would
 // put the post-commit client and uninstall would take it from. An empty global
 // config keeps every git call inside the temporary repositories.
-const EMPTY_GITCONFIG = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-pack-git-')), 'gitconfig');
+const EMPTY_GITCONFIG = path.join(tempDir('agentmash-pack-git-'), 'gitconfig');
 fs.writeFileSync(EMPTY_GITCONFIG, '');
 
 // A home of its own too: the hooks run below log a report the mock server
@@ -91,7 +91,7 @@ const baseEnv = {
   ),
   GIT_CONFIG_GLOBAL: EMPTY_GITCONFIG,
   GIT_CONFIG_NOSYSTEM: '1',
-  AGENTMASH_HOME: fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-pack-home-')),
+  AGENTMASH_HOME: tempDir('agentmash-pack-home-'),
 };
 
 // On Windows npm is npm.cmd and the installed bin is agentmash.cmd. Node has
@@ -113,13 +113,24 @@ function npm(args, cwd) {
   });
 }
 
+/**
+ * What `npm pack --json` says of the one package it packed: npm 10 prints an
+ * array of packages, npm 12 an object keyed by each one's name. The `prepare`
+ * script prints to stdout ahead of npm's JSON, so start at the first line that
+ * opens it.
+ */
+function packed(raw, name) {
+  const json = JSON.parse(raw.slice(raw.search(/^[[{]/m)));
+  return Array.isArray(json) ? json[0] : json[name];
+}
+
 /** Build the real tarball once and install it the way a stranger would. */
 let pack;
 before(() => {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-pack-')));
-  // The `prepare` script prints to stdout ahead of npm's JSON, so start at the array.
+  const dir = fs.realpathSync(tempDir('agentmash-pack-'));
   const raw = npm(['pack', '--json', '--pack-destination', dir, '-w', 'cli'], REPO);
-  const meta = JSON.parse(raw.slice(raw.indexOf('[')))[0];
+  const meta = packed(raw, PKG.name);
+  assert.ok(meta?.filename, `npm pack said nothing of ${PKG.name}:\n${raw}`);
 
   const home = path.join(dir, 'stranger');
   fs.mkdirSync(home);
@@ -154,7 +165,7 @@ function runInstalled(args, { cwd, env = {} } = {}) {
 }
 
 function makeRepo() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-stranger-repo-')));
+  const dir = fs.realpathSync(tempDir('agentmash-stranger-repo-'));
   execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
   return dir;
 }
@@ -176,6 +187,13 @@ function snapshot(repo) {
   walk(repo);
   return Object.fromEntries(Object.entries(files).sort(([a], [b]) => (a < b ? -1 : 1)));
 }
+
+test("npm pack's JSON is read the same from npm 10's array and npm 12's object", () => {
+  const meta = { name: PKG.name, filename: `${PKG.name}-${PKG.version}.tgz`, files: [{ path: 'agentmash.mjs', mode: 493 }] };
+  const prepare = 'synced 4 files into cli/hooks/\nstamped the hooks as 0.0.0\n';
+  assert.deepEqual(packed(`${prepare}${JSON.stringify([meta], null, 2)}\n`, PKG.name), meta);
+  assert.deepEqual(packed(`${prepare}${JSON.stringify({ [PKG.name]: meta }, null, 2)}\n`, PKG.name), meta);
+});
 
 test('the tarball ships exactly the files the CLI needs at run time', () => {
   assert.deepEqual(pack.meta.files.map((f) => f.path).sort(), EXPECTED_FILES);
@@ -259,7 +277,7 @@ test('the installed package runs the digest from the copy it carries', async () 
 });
 
 test('the installed package lists every agent from its own agents/, signed in or not', async () => {
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-pack-tools-')));
+  const home = fs.realpathSync(tempDir('agentmash-pack-tools-'));
   // every folder an agent reads from the environment, in this home: nothing of the developer's is looked at
   const folders = Object.fromEntries(
     [...new Set(Object.values(AGENTS).flatMap((agent) => agent.env ?? []))].map((name) => [name, path.join(home, name.toLowerCase())])
@@ -284,7 +302,7 @@ test('the installed package lists every agent from its own agents/, signed in or
 });
 
 test("the installed package prints the generic hook's line from its own copy, and finds its dialects", async () => {
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-pack-hook-')));
+  const home = fs.realpathSync(tempDir('agentmash-pack-hook-'));
   const result = await runInstalled(['hook', '--print-command', '--client', 'mytool', '--event', 'pre_edit', '--dialect', 'json'], {
     env: { HOME: home, USERPROFILE: home, AGENTMASH_HOME: home },
   });

@@ -14,6 +14,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { CLEARED } from './fixtures/machine.mjs';
 import { startGitHub } from './fixtures/github.mjs';
+import { removeOnExit, tempDir } from './fixtures/tmp.mjs';
 
 const CLI_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CLI = path.join(CLI_DIR, 'agentmash.mjs');
@@ -189,7 +190,7 @@ function startServer() {
 }
 
 function machine() {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-machine-'));
+  const home = tempDir('agentmash-machine-');
   const claude = path.join(home, 'claude');
   fs.mkdirSync(claude);
   // someone's own settings, which must come through untouched
@@ -231,7 +232,7 @@ function signIn(m, url, token = TOKEN) {
  * `committed`: the room's key is in .claude/agentmash/config.json.
  */
 function checkout({ committed = null, remotes = [['origin', 'git@github.com:acme/app.git']] } = {}) {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-machine-repo-'));
+  const repo = tempDir('agentmash-machine-repo-');
   execFileSync('git', ['init', '-q'], { cwd: repo, stdio: 'ignore' });
   for (const [name, url] of remotes) execFileSync('git', ['remote', 'add', name, url], { cwd: repo, stdio: 'ignore' });
   if (committed) {
@@ -343,7 +344,7 @@ test('login turned away for too many sign-ins says what the server said, and not
 test('status says who this machine is and whether this checkout is connected', async () => {
   const server = await startServer();
   const m = machine();
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-machine-repo-'));
+  const repo = tempDir('agentmash-machine-repo-');
   execFileSync('git', ['init', '-q'], { cwd: repo, stdio: 'ignore' });
   execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:acme/app.git'], { cwd: repo, stdio: 'ignore' });
   try {
@@ -469,7 +470,7 @@ test('doctor says when the git client in a checkout connected on the website rep
     // a linked worktree: the hook is the repository's, the worker isn't there
     fs.appendFileSync(path.join(repo, '.git', 'info', 'exclude'), '.claude/\n');
     git(repo, 'commit', '-q', '--allow-empty', '-m', 'init');
-    const tree = `${repo}-feature`;
+    const tree = removeOnExit(`${repo}-feature`);
     git(repo, 'worktree', 'add', '-q', '-b', 'feature', tree);
     const shared = await run(['doctor'], { cwd: tree, env: m.env });
     assert.match(shared.stdout, /the git client's hook is installed in this repository, but its worker isn't in this checkout, so commits made here by hand reach no one — run: npx agentmash git-hook install/);

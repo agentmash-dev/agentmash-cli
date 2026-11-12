@@ -10,11 +10,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { AGENTS, agentFiles, agentPlaces } from '../tools.mjs';
 import zed, { readJsonc, zedServer } from '../agents/zed.mjs';
 import { machine, md5, run, startServer } from './fixtures/machine.mjs';
+import { tempDir } from './fixtures/tmp.mjs';
 
 /** Zed's settings.json in a home, where Zed looks for it on this OS (machine() points XDG_CONFIG_HOME and APPDATA into the home). */
 const settingsIn = (home) =>
@@ -295,7 +295,7 @@ test('the module: an agent like the others, with no hooks, every file it writes 
   assert.ok(Object.values(AGENTS).filter((a) => !a.mcpOnly).every((a) => a.order < zed.order), 'after every agent with hooks');
   assert.deepEqual(zed.hooks('/h/.agentmash/hooks'), zed.hooks('/h/.agentmash/hooks'));
   assert.doesNotMatch(JSON.stringify(zed.hooks('/h/.agentmash/hooks')), /\d+\.\d+\.\d+/, 'nothing that changes between releases');
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-zed-files-')));
+  const home = fs.realpathSync(tempDir('agentmash-zed-files-'));
   const saved = { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, APPDATA: process.env.APPDATA, FLATPAK_XDG_CONFIG_HOME: process.env.FLATPAK_XDG_CONFIG_HOME };
   try {
     delete process.env.FLATPAK_XDG_CONFIG_HOME;
@@ -326,7 +326,7 @@ test('readJsonc reads what Zed reads: comments, trailing commas and a byte order
 /** connect, then disconnect, on settings in a home of its own, straight through the module: what each left (null: no file). */
 function roundTrip(settings) {
   const saved = { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, APPDATA: process.env.APPDATA, FLATPAK_XDG_CONFIG_HOME: process.env.FLATPAK_XDG_CONFIG_HOME };
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-zed-shape-')));
+  const home = fs.realpathSync(tempDir('agentmash-zed-shape-'));
   const places = { home, toolPath: '', apps: null };
   const hookDir = path.join(home, '.agentmash', 'hooks');
   const file = settingsIn(home);
@@ -377,7 +377,7 @@ test('each way a person may write settings.json: ours goes in laid out as theirs
 });
 
 test('ours with a command the person changed (a full path to node) is already connected, and kept as they wrote it', () => {
-  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-zed-mine-')));
+  const home = fs.realpathSync(tempDir('agentmash-zed-mine-'));
   const saved = { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, APPDATA: process.env.APPDATA, FLATPAK_XDG_CONFIG_HOME: process.env.FLATPAK_XDG_CONFIG_HOME };
   try {
     delete process.env.FLATPAK_XDG_CONFIG_HOME;

@@ -11,10 +11,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { HOOKS_DIR, eventsOf, machine, runHook, session, startServer, within } from './fixtures.mjs';
+import { tempDir } from './tmp.mjs';
 
 /** The arguments login registers each of Kiro's hooks with. */
 const kiro = (event) => [event, '--global', '--client', 'kiro', '--dialect', 'kiro'];
@@ -32,7 +32,7 @@ const ADVICE = /^\[AgentMash: PARALLEL EDIT\] alice's agent modified src\/models
  * session id, and every session without one shares the scratch of "unknown".
  */
 const ownTemp = () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-kiro-scratch-'));
+  const dir = tempDir('agentmash-kiro-scratch-');
   return { TMPDIR: dir, TMP: dir, TEMP: dir };
 };
 

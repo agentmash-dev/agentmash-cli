@@ -52,6 +52,11 @@ let rawInput = null;
 const toolOf = (name) => lib.clientTool?.(CLIENT, name ?? null, rawInput) ?? name ?? null;
 
 let exitGuard = armExitGuard();
+// The subagent this run reports for, as an opaque id (lib.subagentRef), or
+// null for the session's own agent: set once the input is read, sent beside
+// every event this run reports so the room's agent-hour meter counts a
+// subagent as its own agent. Nothing else of the subagent leaves the machine.
+let subagent = null;
 
 /**
  * Let the report's own budget end a slow report, not the guard. A vendored
@@ -68,6 +73,7 @@ function holdExitGuard(budgetMs) {
  * hook's next run to say (keepInboxNote, sayInboxNews).
  */
 async function report(config, body, projectDir) {
+  if (subagent) body = { ...body, subagent };
   const answer = lib.reportEvent
     ? await lib.reportEvent(config, body, { hook: 'post_tool_use', project: projectDir })
     : await httpJson('POST', `${config.url}/events`, {
@@ -278,6 +284,7 @@ async function main() {
   const timestamp = new Date().toISOString();
   const sessionId = input?.session_id || 'unknown';
   const prompt = promptFor(sessionId, input?.agent_id);
+  subagent = lib.subagentRef?.(sessionId, input?.agent_id) ?? null;
 
   const projectDir = process.env.CLAUDE_PROJECT_DIR || input?.cwd || process.cwd();
 
@@ -363,7 +370,8 @@ async function main() {
       // it from this process's folder: Devin's are relative to its cwd
       symbols: lib.symbolsForEdit?.(path.join(where.top, file), edit.tool, edit.input) ?? null,
       // Which crew agent made the edit, when a crew agent did: a catalog
-      // name and nothing else. Any other agent's name, its id and its prompt
+      // name and nothing else. Any other agent's name, its id (but for the
+      // opaque hash of it beside every report, subagentRef) and its prompt
       // stay on this machine.
       agent_type: lib.crewAgentOf?.(input?.agent_type) ?? null,
       diff: diffPassed ? diff : undefined,

@@ -18,6 +18,7 @@ import { pathToFileURL } from 'node:url';
 import { parseToml } from '../toml.mjs';
 import { AGENTS, agentFiles, agentPlaces, codexHooks, codexServerBlock, copilotHooks, cursorHooks, namesFolder } from '../tools.mjs';
 import { CLI_DIR, THEIRS, baseEnv, json, machine, md5, run, runsOurs, shownHere, startServer, vscodeMcp } from './fixtures/machine.mjs';
+import { tempDir } from './fixtures/tmp.mjs';
 
 test('login connects every agent it finds, at user level, and says for each what it did', async () => {
   const server = await startServer();
@@ -512,7 +513,7 @@ test("doctor says when the machine's scripts are older than this CLI, and that l
 // (Node 24 says so: DEP0190, on every login), and the JSON `code --add-mcp`
 // takes came apart in cmd.exe.
 test('a .cmd command gets each argument as it was given, and Node warns of nothing', { skip: process.platform !== 'win32' && '.cmd shims are Windows only' }, async () => {
-  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cmd shim-'));
+  const bin = tempDir('agentmash-cmd shim-');
   fs.writeFileSync(path.join(bin, 'said.mjs'), 'process.stdout.write(JSON.stringify(process.argv.slice(2)));\n');
   // as npm and VS Code write theirs: the program, then everything typed, with %*
   fs.writeFileSync(path.join(bin, 'code.cmd'), `@"${process.execPath}" "%~dp0said.mjs" %*\r\n`);
@@ -570,7 +571,7 @@ test('the agents are the modules in agents/, each whole, in their order', () => 
   for (const name of Object.keys(saved)) delete process.env[name];
   try {
     const home = path.join(path.sep, 'h');
-    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-tools-nothing-'));
+    const empty = tempDir('agentmash-tools-nothing-');
     const places = { ...agentPlaces(), home, toolPath: empty, apps: null, codex: path.join(home, '.codex'), cursor: path.join(home, '.cursor'), copilot: path.join(home, '.copilot'), vscodeUser: path.join(home, 'Code', 'User') };
     const config = path.join(home, '.config');
     assert.deepEqual(agentFiles(places), [
@@ -627,7 +628,7 @@ test("what login registers is byte for byte what it always was: Codex keys a per
 
 /** A copy of the CLI's own files in a folder of their own, with `agents` written into its agents/. */
 function cliCopy(agents) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cli-copy-')));
+  const dir = fs.realpathSync(tempDir('agentmash-cli-copy-'));
   for (const file of ['agentmash.mjs', 'tools.mjs', 'agent-kit.mjs', 'toml.mjs', 'visibility.mjs', 'package.json']) fs.copyFileSync(path.join(CLI_DIR, file), path.join(dir, file));
   fs.mkdirSync(path.join(dir, 'agents'));
   for (const file of fs.readdirSync(path.join(CLI_DIR, 'agents'))) fs.copyFileSync(path.join(CLI_DIR, 'agents', file), path.join(dir, 'agents', file));

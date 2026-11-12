@@ -10,15 +10,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { HOLDER, KEY, baseEnv, runHook, session, startServer } from './fixtures.mjs';
 import * as lib from '../lib.mjs';
+import { tempDir } from './tmp.mjs';
 
 // git reads the global config of whoever runs the tests (a global excludes
 // file above all), so it gets an empty one
-const EMPTY_GITCONFIG = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-ignored-git-')), 'gitconfig');
+const EMPTY_GITCONFIG = path.join(tempDir('agentmash-ignored-git-'), 'gitconfig');
 fs.writeFileSync(EMPTY_GITCONFIG, '');
 const gitEnv = { GIT_CONFIG_GLOBAL: EMPTY_GITCONFIG, GIT_CONFIG_NOSYSTEM: '1' };
 // lib.gitIgnored, called in this process, runs git with this process's environment
@@ -33,7 +33,7 @@ function writeFile(dir, rel, content) {
 
 /** A committed repository with a space in its path, .env, scratch/ and dist/ ignored, and dist/vendor.js tracked anyway. */
 function repository() {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'comp programming-ignored-')));
+  const dir = fs.realpathSync(tempDir('comp programming-ignored-'));
   const git = (...args) => execFileSync('git', args, { cwd: dir, env: { ...baseEnv, ...gitEnv }, stdio: 'ignore' });
   git('init', '-q');
   git('config', 'user.email', 'bob@example.com');
@@ -57,7 +57,7 @@ const holders = [...IGNORED, ...TRACKED, 'src/models/team.ts'].map((file_path) =
 
 function env(repo, port) {
   return {
-    AGENTMASH_HOME: fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-ignored-home-')),
+    AGENTMASH_HOME: tempDir('agentmash-ignored-home-'),
     AGENTMASH_URL: `http://127.0.0.1:${port}`,
     AGENTMASH_ROOM: KEY,
     AGENTMASH_DEV: 'bob',
@@ -171,7 +171,7 @@ test('a file under .git/ is not in the repository: not reported, not asked about
     await room.close();
   }
 
-  const worktree = path.join(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-ignored-wt-'))), 'feature');
+  const worktree = path.join(fs.realpathSync(tempDir('agentmash-ignored-wt-')), 'feature');
   execFileSync('git', ['worktree', 'add', '-q', '-b', 'feature', worktree], { cwd: repo, env: { ...baseEnv, ...gitEnv }, stdio: 'ignore' });
   for (const rel of IN_GIT_DIR) assert.equal(lib.locateInRepo(repo, path.join(repo, ...rel.split('/'))), null, rel);
   assert.equal(lib.locateInRepo(worktree, path.join(worktree, '.git')), null, "a worktree's .git file");
@@ -204,7 +204,7 @@ test('git is asked once a session about a file, until what its answer was read f
   assert.deepEqual(rels(await lib.gitIgnored(files(), { sessionId })), []);
 
   // in no repository at all, nothing is ignored, and git is not asked
-  const elsewhere = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-ignored-plain-')));
+  const elsewhere = fs.realpathSync(tempDir('agentmash-ignored-plain-'));
   assert.deepEqual(rels(await lib.gitIgnored([{ rel: '.env', top: elsewhere }], { sessionId })), []);
 });
 

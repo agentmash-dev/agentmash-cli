@@ -8,7 +8,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -16,6 +15,7 @@ import { startMockServer } from './mock-server.mjs';
 
 // Importing this runs the pack-time sync, which is what puts cli/crew/ there.
 import { verifyCrewCopy } from '../sync-hooks.mjs';
+import { tempDir } from './fixtures/tmp.mjs';
 
 const CLI_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CLI = path.join(CLI_DIR, 'agentmash.mjs');
@@ -38,7 +38,7 @@ const MARKER = BUNDLE.meta.hook.marker;
 // core.hooksPath (a ~/.githooks every repository shares) is where init would
 // put the post-commit client and uninstall would take it from. An empty global
 // config keeps every git call inside the temporary repositories.
-const EMPTY_GITCONFIG = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-team-git-')), 'gitconfig');
+const EMPTY_GITCONFIG = path.join(tempDir('agentmash-team-git-'), 'gitconfig');
 fs.writeFileSync(EMPTY_GITCONFIG, '');
 
 const baseEnv = {
@@ -72,7 +72,7 @@ function run(args, { cwd, env = {}, offline = false } = {}) {
 }
 
 function makeRepo() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-team-test-'));
+  const dir = tempDir('agentmash-team-test-');
   execFileSync('git', ['init', '-q'], { cwd: dir, env: baseEnv, stdio: 'ignore' });
   return fs.realpathSync(dir);
 }
@@ -466,7 +466,7 @@ test('team refuses what it cannot do safely, and writes nothing while refusing',
   }
   assert.ok(!exists(repo, '.claude'), 'no refusal may leave anything behind');
 
-  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-team-norepo-')));
+  const outside = fs.realpathSync(tempDir('agentmash-team-norepo-'));
   const noRepo = await run(['crew', 'add', TEAM, '--agents', 'pipe'], { cwd: outside });
   assert.equal(noRepo.code, 1);
   assert.match(noRepo.stderr, /not inside a git repository/);
@@ -478,7 +478,7 @@ test('team refuses what it cannot do safely, and writes nothing while refusing',
 
 test('the packed crew is checked against the lock, so a hand-edited crew cannot ship', () => {
   const files = ['bundle.json', 'install.mjs', 'team-plan.mjs', 'crew.lock.json', 'README.md'];
-  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-crew-copy-'));
+  const copy = tempDir('agentmash-crew-copy-');
   for (const file of files) fs.copyFileSync(path.join(CLI_DIR, 'crew', file), path.join(copy, file));
   verifyCrewCopy(copy, files);
 

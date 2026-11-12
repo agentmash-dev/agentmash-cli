@@ -11,14 +11,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { json, machine, run, runsOurs, shownHere, startServer, TOKEN } from './fixtures/machine.mjs';
+import { tempDir } from './fixtures/tmp.mjs';
 
 /** A checkout of acme/app, which the fixture's server says is not connected to a room yet. */
 function checkout() {
-  const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-status-repo-')));
+  const repo = fs.realpathSync(tempDir('agentmash-status-repo-'));
   execFileSync('git', ['init', '-q'], { cwd: repo, stdio: 'ignore' });
   execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:acme/app.git'], { cwd: repo, stdio: 'ignore' });
   return repo;

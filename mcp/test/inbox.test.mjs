@@ -12,12 +12,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { tempDir } from './tmp.mjs';
 
 const MCP_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SERVER = path.join(MCP_DIR, 'server.mjs');
@@ -119,13 +119,13 @@ async function startInbox(state = {}) {
  * real MCP client on the server.
  */
 async function connect(url, { signedIn = true, ref = true } = {}) {
-  const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-inbox-repo-')));
+  const project = fs.realpathSync(tempDir('agentmash-inbox-repo-'));
   fs.mkdirSync(path.join(project, '.claude', 'agentmash'), { recursive: true });
   fs.writeFileSync(
     path.join(project, '.claude', 'agentmash', 'config.json'),
     JSON.stringify({ url, room: KEY, ...(ref ? { room_ref: REF } : {}) })
   );
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-inbox-home-'));
+  const home = tempDir('agentmash-inbox-home-');
   if (signedIn) {
     fs.mkdirSync(path.join(home, '.agentmash'), { recursive: true });
     fs.writeFileSync(path.join(home, '.agentmash', 'user.json'), JSON.stringify({ url, token: USER, login: 'carol' }));

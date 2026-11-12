@@ -14,10 +14,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { HOOKS_DIR, REF, eventsOf, machine, runHook, session, startServer, within } from './fixtures.mjs';
 import dialect, { firstSight, lastUserInput, parseAntigravity, requestOf } from '../dialects/antigravity.mjs';
+import { tempDir } from './tmp.mjs';
 
 const FIXTURES = path.join(HOOKS_DIR, 'test', 'fixtures', 'antigravity');
 /** Exactly the arguments login registers: no --dialect, so the hook finds this one by the client's name. */
@@ -28,7 +28,7 @@ const hook = (event, payload, env) => runHook('agent_hook.mjs', payload, env, [e
 
 /** A brain folder of agy's, with the recorded transcript in it. */
 function brain() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-agy-brain-'));
+  const dir = tempDir('agentmash-agy-brain-');
   fs.copyFileSync(path.join(FIXTURES, 'transcript_full.jsonl'), path.join(dir, 'transcript_full.jsonl'));
   return dir;
 }
@@ -221,7 +221,7 @@ test("a room that is down, a script that cannot answer, and stdin that is not ag
   const n = machine(up.port);
   try {
     for (const script of ['throw new Error("boom");\n', 'console.log("not json");\n', 'process.exit(3);\n']) {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-agy-hooks-'));
+      const dir = tempDir('agentmash-agy-hooks-');
       fs.mkdirSync(path.join(dir, 'dialects'));
       for (const file of fs.readdirSync(HOOKS_DIR).filter((f) => f.endsWith('.mjs'))) fs.copyFileSync(path.join(HOOKS_DIR, file), path.join(dir, file));
       for (const file of fs.readdirSync(path.join(HOOKS_DIR, 'dialects'))) fs.copyFileSync(path.join(HOOKS_DIR, 'dialects', file), path.join(dir, 'dialects', file));
@@ -288,7 +288,7 @@ test('the transcript is read from its end, a line at a time, and a turn is count
 
   const saved = process.env.AGENTMASH_HOME;
   try {
-    process.env.AGENTMASH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-agy-turns-'));
+    process.env.AGENTMASH_HOME = tempDir('agentmash-agy-turns-');
     assert.equal(firstSight('c-1', 10), true);
     assert.equal(firstSight('c-1', 10), false);
     assert.equal(firstSight('c-2', 10), true, 'another conversation');

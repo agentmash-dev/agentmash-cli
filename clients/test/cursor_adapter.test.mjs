@@ -10,6 +10,7 @@ import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { QUOTED_NOTE } from '../../hooks/lib.mjs';
+import { tempDir } from './tmp.mjs';
 
 const ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 const ADAPTER = path.join(ROOT, 'clients', 'cursor', 'after_file_edit.mjs');
@@ -21,7 +22,7 @@ const baseEnv = {
   ...Object.fromEntries(
     Object.entries(process.env).filter(([k]) => !k.startsWith('AGENTMASH_') && k !== 'CLAUDE_PROJECT_DIR')
   ),
-  AGENTMASH_HOME: fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-home-')),
+  AGENTMASH_HOME: tempDir('agentmash-cursor-home-'),
 };
 
 let counter = 0;
@@ -93,7 +94,7 @@ function run(payload, env = {}, args = []) {
 }
 
 function makeWorkspace(url, extra = {}) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-test-')));
+  const dir = fs.realpathSync(tempDir('agentmash-cursor-test-'));
   fs.mkdirSync(path.join(dir, '.claude', 'agentmash'), { recursive: true });
   fs.writeFileSync(
     path.join(dir, '.claude', 'agentmash', 'config.json'),
@@ -267,7 +268,7 @@ test('a room that wants a developer token gets the one this machine holds for it
   const mock = await startMockServer();
   const root = makeWorkspace(mock.url, { room_ref: 'rm_cursor0001' });
   // where `npx agentmash login --room` keeps it: this machine, never the repo
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-home-'));
+  const home = tempDir('agentmash-cursor-home-');
   fs.mkdirSync(path.join(home, '.agentmash'));
   fs.writeFileSync(
     path.join(home, '.agentmash', 'credentials.json'),
@@ -294,7 +295,7 @@ test("a signed-in machine's edits carry its sign-in beside the repository's key,
   const mock = await startMockServer();
   const root = makeWorkspace(mock.url);
   // where `npx agentmash login` keeps this machine's sign-in
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-home-'));
+  const home = tempDir('agentmash-cursor-home-');
   fs.mkdirSync(path.join(home, '.agentmash'));
   fs.writeFileSync(
     path.join(home, '.agentmash', 'user.json'),
@@ -338,7 +339,7 @@ test('with several roots open, an edit in another repository is not reported to 
   const mock = await startMockServer();
   const root = makeWorkspace(mock.url);
   // A second root that is a repository of its own, with its own branch.
-  const other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'comp programming-other-')));
+  const other = fs.realpathSync(tempDir('comp programming-other-'));
   fs.mkdirSync(path.join(other, '.git'));
   fs.writeFileSync(path.join(other, '.git', 'HEAD'), 'ref: refs/heads/dogfood\n');
   // And a folder of this same repository opened as a root of its own.
@@ -443,7 +444,7 @@ test('the adapter exits 0 on garbage stdin, and does nothing unconfigured', asyn
       assert.equal(atUserLevel.stdout, args.includes('--detach') ? '' : '{"permission":"allow"}\n', args.join(' '));
     }
 
-    const unconfigured = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-bare-')));
+    const unconfigured = fs.realpathSync(tempDir('agentmash-cursor-bare-'));
     const result = await run(afterFileEdit(unconfigured, freshConversation()), {
       AGENTMASH_URL: mock.url,
     });
@@ -512,7 +513,7 @@ const answerOf = (result) => {
 test('preToolUse refuses the first edit of a hot file once, with the advisory for the agent, and lets the retry through', async () => {
   const mock = await startMockServer({ check: { conflict: true, holders: [HOLDER] } });
   const root = makeWorkspace(mock.url);
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-home-'));
+  const home = tempDir('agentmash-cursor-home-');
   const conversation = freshConversation();
   try {
     const first = answerOf(await run(preToolUse(root, conversation), userLevel(home), ['--global']));
@@ -550,7 +551,7 @@ test('the refusal quotes a teammate’s words cleaned and says they are quoted, 
   for (const check of [{ conflict: true, holders: [planted] }, { conflict: false, holders: [], claims: [claim] }]) {
     const mock = await startMockServer({ check });
     const root = makeWorkspace(mock.url);
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-home-'));
+    const home = tempDir('agentmash-cursor-home-');
     try {
       const first = answerOf(await run(preToolUse(root, freshConversation()), userLevel(home), ['--global']));
       assert.equal(first.permission, 'deny');
@@ -568,7 +569,7 @@ test('the refusal quotes a teammate’s words cleaned and says they are quoted, 
 test('preToolUse reads a payload behind a byte order mark and answers in ASCII, as the Claude Code hooks do on Windows', async () => {
   const mock = await startMockServer({ check: { conflict: true, holders: [{ ...HOLDER, developer: 'zoë', task_hint: 'naïve — rename' }] } });
   const root = makeWorkspace(mock.url);
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-home-'));
+  const home = tempDir('agentmash-cursor-home-');
   try {
     const res = await run(`\uFEFF${JSON.stringify(preToolUse(root, freshConversation()))}`, userLevel(home), ['--global']);
     assert.match(res.stdout, /^[\x00-\x7f]*$/, 'nothing for PowerShell to re-encode');
@@ -587,7 +588,7 @@ test('preToolUse reads a payload behind a byte order mark and answers in ASCII, 
 test('preToolUse sends what the file imports apart from what it declares', async () => {
   const mock = await startMockServer();
   const root = makeWorkspace(mock.url);
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-home-'));
+  const home = tempDir('agentmash-cursor-home-');
   try {
     const route = path.join(root, 'app', 'api', 'orders', 'route.ts');
     fs.mkdirSync(path.dirname(route), { recursive: true });
@@ -610,7 +611,7 @@ test('preToolUse sends what the file imports apart from what it declares', async
 });
 
 test('preToolUse always answers with valid JSON, and allows whatever it cannot ask about', async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-home-'));
+  const home = tempDir('agentmash-cursor-home-');
   const quiet = await startMockServer();
   const root = makeWorkspace(quiet.url);
   try {
@@ -639,18 +640,18 @@ test('preToolUse always answers with valid JSON, and allows whatever it cannot a
     await hung.close();
   }
 
-  const bare = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-bare-')));
+  const bare = fs.realpathSync(tempDir('agentmash-cursor-bare-'));
   assert.deepEqual(answerOf(await run(preToolUse(bare, freshConversation()), userLevel(home), ['--global'])), { permission: 'allow' }, 'no room anywhere');
   assert.deepEqual(answerOf(await run({ hook_event_name: 'preToolUse', cursor_version: '2.4.0' }, userLevel(home), ['--global'])), { permission: 'allow' }, 'a payload with nothing in it');
 });
 
 test('signed in, at user level: edits and prompts reach the room by the repository, as this machine, and not twice beside a repository-level adapter', async () => {
   const mock = await startMockServer({ lookup: { room_ref: 'rm_0123456789', developer: 'alice' } });
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-home-'));
+  const home = tempDir('agentmash-cursor-home-');
   fs.mkdirSync(path.join(home, '.agentmash'), { recursive: true });
   fs.writeFileSync(path.join(home, '.agentmash', 'user.json'), JSON.stringify({ url: mock.url, token: 'amu_cursorcursorcursorcursor', login: 'alice' }));
   // a checkout of a connected repository that carries no room of its own
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-login-')));
+  const root = fs.realpathSync(tempDir('agentmash-cursor-login-'));
   fs.mkdirSync(path.join(root, '.git'));
   fs.writeFileSync(path.join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n');
   fs.writeFileSync(path.join(root, '.git', 'config'), '[remote "origin"]\n\turl = git@github.com:acme/app.git\n');
@@ -697,7 +698,7 @@ test('signed in, at user level: edits and prompts reach the room by the reposito
 // and its edits and prompts were dropped that long after a "no".
 test('signed in, at user level: the check before an edit keeps a recent "not connected", and a report looks again', async () => {
   const mock = await startMockServer({ lookup: { room_ref: 'rm_0123456789', developer: 'alice' } });
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-home-'));
+  const home = tempDir('agentmash-cursor-home-');
   fs.mkdirSync(path.join(home, '.agentmash'), { recursive: true });
   fs.writeFileSync(path.join(home, '.agentmash', 'user.json'), JSON.stringify({ url: mock.url, token: 'amu_cursorcursorcursorcursor', login: 'alice' }));
   // the repository was not connected two minutes ago, and is now
@@ -705,7 +706,7 @@ test('signed in, at user level: the check before an edit keeps a recent "not con
     path.join(home, '.agentmash', 'rooms.json'),
     JSON.stringify({ [`${mock.url}|acme/app`]: { none: true, code: 'not_connected', at: Date.now() - 2 * 60_000 } })
   );
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-login-')));
+  const root = fs.realpathSync(tempDir('agentmash-cursor-login-'));
   fs.mkdirSync(path.join(root, '.git'));
   fs.writeFileSync(path.join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n');
   fs.writeFileSync(path.join(root, '.git', 'config'), '[remote "origin"]\n\turl = git@github.com:acme/app.git\n');
@@ -732,13 +733,13 @@ test('signed in, at user level: the check before an edit keeps a recent "not con
 // throwaway repository, with git's global config left out.
 // ---------------------------------------------------------------------------
 
-const EMPTY_GITCONFIG = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-git-')), 'gitconfig');
+const EMPTY_GITCONFIG = path.join(tempDir('agentmash-cursor-git-'), 'gitconfig');
 fs.writeFileSync(EMPTY_GITCONFIG, '');
 const gitEnv = { GIT_CONFIG_GLOBAL: EMPTY_GITCONFIG, GIT_CONFIG_NOSYSTEM: '1' };
 
 /** A committed repository carrying the room, with .env and scratch/ ignored. */
 function ignoringWorkspace(url) {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'comp programming-cursor-ignored-')));
+  const dir = fs.realpathSync(tempDir('comp programming-cursor-ignored-'));
   const git = (...args) => execFileSync('git', args, { cwd: dir, env: { ...baseEnv, ...gitEnv }, stdio: 'ignore' });
   git('init', '-q');
   git('config', 'user.email', 'alice@example.com');
@@ -778,7 +779,7 @@ test('before an edit to a file git ignores, or one in .git/, the room is not ask
   const holders = [...NOT_MERGED, 'src/models/user.ts'].map((file_path) => ({ ...HOLDER, file_path }));
   const mock = await startMockServer({ check: { conflict: true, holders } });
   const root = ignoringWorkspace(mock.url);
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmash-cursor-home-'));
+  const home = tempDir('agentmash-cursor-home-');
   try {
     const conversation = freshConversation();
     for (const rel of NOT_MERGED) {
