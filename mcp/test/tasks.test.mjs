@@ -210,12 +210,12 @@ function answerOf(result) {
 
 const writes = (lobby) => lobby.requests.filter((r) => r.method !== 'GET');
 
-test('the five task tools sit beside the ten: strict, two that read, three that write and delete nothing, none named for deleting', async () => {
+test('the five task tools sit beside the eleven: strict, two that read, three that write and delete nothing, none named for deleting', async () => {
   const lobby = await startLobby();
   const client = await connect(lobby.url);
   try {
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 15);
+    assert.equal(tools.length, 16);
     const shown = tools.filter((t) => TASK_TOOLS.includes(t.name));
     assert.deepEqual(shown.map((t) => t.name).sort(), TASK_TOOLS);
     for (const tool of shown) {
@@ -243,12 +243,12 @@ test('the five task tools sit beside the ten: strict, two that read, three that 
   }
 });
 
-test('an agent the lobby gave its own task tools is shown the ten alone, and a call to one of the five sends it there', async () => {
+test('an agent the lobby gave its own task tools is shown the eleven alone, and a call to one of the five sends it there', async () => {
   const lobby = await startLobby();
   const client = await connect(lobby.url, { env: { AGENTMASH_LOBBY_TEAM_TOOLS: '1' } });
   try {
     const { tools } = await client.listTools();
-    assert.equal(tools.length, 10);
+    assert.equal(tools.length, 11);
     assert.ok(!tools.some((t) => TASK_TOOLS.includes(t.name)));
     assert.doesNotMatch(client.getInstructions(), /tasks_list|task_update/);
     assert.match(client.getInstructions(), /get_collisions and check_inbox only\s+read/);

@@ -346,10 +346,13 @@ test('a room that is down or never answers, and a script that hangs or crashes, 
   const hung = await startServer({ hang: true });
   const h = machine(hung.port);
   try {
-    const env = { ...h.env, AGENTMASH_TIMEOUT_MS: '600' };
+    // The budget stretches with the machine, as the limits below do: on CI's busy runner a hook given 600 ms
+    // had spent them before its question left, and the test then found a room that was never asked.
+    const budget = within(600);
+    const env = { ...h.env, AGENTMASH_TIMEOUT_MS: String(budget) };
     const slow = await hook('pre_edit', normalEdit(h, session()), env, deny);
     assert.deepEqual([slow.code, slow.stdout], [0, GO_ON]);
-    assert.ok(slow.elapsed < within(600 + 250 + 400 + 500), `${slow.elapsed}ms`);
+    assert.ok(slow.elapsed < budget + within(250 + 400 + 500), `${slow.elapsed}ms`);
     assert.ok(hung.requests.some((r) => r.path === '/check'), 'it did ask');
     // and the default budget, as an agent gets it
     const json = await hook('pre_edit', normalEdit(h, session()), h.env, ['--global', '--client', 'acme', '--dialect', 'json']);

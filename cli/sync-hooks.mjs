@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Copy the files the published package has to carry into the CLI package: the
 // hook scripts it installs, with the MCP launcher and the server it starts and
-// the generic hook other agents run (with every dialect it answers in),
-// the other protocol clients it installs, mcp/server.mjs, the vendored
+// the generic hook other agents run (with every dialect it answers in) and
+// observing's scripts, the other protocol clients it installs, mcp/server.mjs, the vendored
 // crew `agentmash crew` installs from, and the digest `agentmash digest` runs.
 //
 // `files` in package.json cannot reach outside the package directory, so the
@@ -116,6 +116,13 @@ const sets = [
       // the generic hook any agent with hooks runs, and the answers it gives, at user level only
       'agent_hook.mjs',
       ...dialectFiles(),
+      // observing: what its two hooks and its worker share, then each of them, and what the worker
+      // syncs with a room that shares, at user level only
+      'observe.mjs',
+      'observe_spool.mjs',
+      'observe_worker.mjs',
+      'observe_recall.mjs',
+      'observe_sync.mjs',
     ],
   },
   { dir: 'mcp', files: ['server.mjs'] },

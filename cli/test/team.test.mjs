@@ -47,6 +47,10 @@ const baseEnv = {
   ),
   GIT_CONFIG_GLOBAL: EMPTY_GITCONFIG,
   GIT_CONFIG_NOSYSTEM: '1',
+  // Nothing of the machine the tests run on: doctor reads whether this machine observes and what its Claude
+  // Code settings register, and a developer's own install, of whatever version, is not what is under test.
+  AGENTMASH_HOME: tempDir('agentmash-team-home-'),
+  CLAUDE_CONFIG_DIR: tempDir('agentmash-team-claude-'),
 };
 
 function run(args, { cwd, env = {}, offline = false } = {}) {

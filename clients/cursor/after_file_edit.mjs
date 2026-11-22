@@ -168,14 +168,19 @@ async function adviseBeforeEdit(input, projectDir) {
   const conversation = input.conversation_id || input.session_id || 'unknown';
   // A file git ignores is never merged, so no teammate's edit to it can
   // conflict with this one: the room is not asked, as the Claude Code hooks
-  // do not ask it (see gitIgnored in lib.mjs).
-  if ((await lib.gitIgnored?.([where], { sessionId: conversation }))?.has(where)) return ALLOW;
+  // do not ask it (see gitIgnored in lib.mjs). One git gave no answer about
+  // is asked about by its name alone (see gitIgnoreAnswers).
+  const answers = lib.gitIgnoreAnswers
+    ? await lib.gitIgnoreAnswers([where], { sessionId: conversation })
+    : { ignored: (await lib.gitIgnored?.([where], { sessionId: conversation })) ?? new Set(), unanswered: new Set() };
+  if (answers.ignored.has(where)) return ALLOW;
+  const blind = answers.unanswered.has(where);
   const developer = getDeveloper(config, projectDir);
   // as the Claude Code hook asks (pre_tool_use.mjs, checkFile): another file
   // bears on this one only through what this one imports
   const abs = path.join(where.top, where.rel);
-  const bound = lib.bindingsForFile ? lib.bindingsForFile(abs) : null;
-  const symbols = lib.bindingsForFile ? (bound?.symbols ?? null) : (lib.symbolsForFile?.(abs) ?? null);
+  const bound = lib.bindingsForFile && !blind ? lib.bindingsForFile(abs) : null;
+  const symbols = blind ? null : lib.bindingsForFile ? (bound?.symbols ?? null) : (lib.symbolsForFile?.(abs) ?? null);
   const imports = bound?.imports ?? null;
   const result = await httpJson(
     'GET',
@@ -269,9 +274,13 @@ async function main() {
   };
   // The credentials the hooks send: the room's key, and the developer token
   // this machine holds for the room, which a room that requires them will not
-  // take an event without.
-  const post = (extra) =>
-    httpJson('POST', `${config.url}/events`, {
+  // take an event without. Through the hooks' own path (lib.reportEvent),
+  // which gives each event an id, logs one that does not arrive and keeps one
+  // the server may yet take, to be sent later under that id; a lib.mjs from
+  // before that path posts it the way this adapter always did.
+  const post = (extra) => {
+    if (lib.reportEvent) return lib.reportEvent(config, { ...body, ...extra }, { hook: `cursor:${event}`, project: projectDir });
+    return httpJson('POST', `${config.url}/events`, {
       room: config.room,
       token: config.token,
       user: config.user,
@@ -279,6 +288,7 @@ async function main() {
       timeoutMs: config.reportTimeoutMs,
       body: { ...body, ...extra },
     });
+  };
   // AGENTMASH_HINTS=0 (or share_hints false) keeps this developer's prompts on
   // this machine, as it does in the Claude Code hooks: every event still goes
   // out, so they are seen working, only without what they asked for. The
@@ -320,8 +330,14 @@ async function main() {
   }
   if (!where) return;
   // A file git ignores (.env, a scratch folder) is never merged: no teammate
-  // can collide with what is in it, and it is nobody else's business.
-  if ((await lib.gitIgnored?.([where], { sessionId }))?.has(where)) return;
+  // can collide with what is in it, and it is nobody else's business. One git
+  // gave no answer about is reported by its line counts alone (see
+  // gitIgnoreAnswers in lib.mjs).
+  const answers = lib.gitIgnoreAnswers
+    ? await lib.gitIgnoreAnswers([where], { sessionId })
+    : { ignored: (await lib.gitIgnored?.([where], { sessionId })) ?? new Set(), unanswered: new Set() };
+  if (answers.ignored.has(where)) return;
+  const blind = answers.unanswered.has(where);
 
   await post({
     event_type: 'edit',
@@ -333,7 +349,7 @@ async function main() {
     task_hint: hintOf(cache.task_hint),
     // Cursor's `edits` is shaped exactly like Claude Code's MultiEdit input, so
     // the same summarizer produces the same "+12/-3 lines, touching X".
-    change_summary: summarizeChange('MultiEdit', { edits: input.edits || [] }),
+    change_summary: summarizeChange('MultiEdit', { edits: input.edits || [] }, { names: !blind }),
   });
 }
 

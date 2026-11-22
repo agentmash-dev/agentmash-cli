@@ -177,6 +177,8 @@ One JSON object. Three fields are required; the rest are optional and default to
 | `agent_type` | string \| null | no | 64 | Only on `edit`: which named subagent made the edit, when it is an agentmash crew agent: its catalog name without a plugin prefix (`"pipe-backend"`, never `"agentmash-crew:pipe-backend"`). Null for the main agent and for any agent outside the crew roster. A client must not send a name somebody gave their own agent; one that is spelled exactly like a crew name is indistinguishable from it and goes as that crew name, so what leaves is only ever one of the 22 public names. Sanitised, never validated, so it never costs an event a 400: the server stores it on `edit` events only (null on every other `event_type`), and keeps it only if it is one of the crew catalog's 22 names; anything else, another name, a non-string, any length, is stored as null and the event is accepted as usual. A server started without the crew catalog (`crew/` absent) cannot check the roster and keeps any string shaped like a catalog name (lowercase words joined by single hyphens, at most 64 characters). Old servers accept and discard it. |
 | `end_reason` | string \| null | no | 50 | Only on `session_end`: how the session ended, as the client saw it (`"exit"`, `"clear"`, `"logout"`, `"other"`). A reader uses it to tell a session that finished from one that was cleared out from under it. |
 | `timestamp` | string \| number \| null | no | — | When, as an ISO 8601 string or epoch **milliseconds**. Absent, null, or an unparseable string → the server's clock at receipt. A *number* is taken as milliseconds with no sanity check: send epoch seconds and the event is filed in 1970, accepted with a 201, and never appears in any reader's window. This is the single most likely mistake in a new client. A time later than the server's clock when the event arrived is stored as that arrival: nobody edited a file after the server heard about it, and a fast clock would otherwise keep someone looking busy long after they left. An earlier one is kept as sent. |
+| `report_id` | string \| null | no | 64 | The report's own id: 8 to 64 characters of `[A-Za-z0-9_-]`, made once by the client at random (the reference hooks make 22) and sent again unchanged with every later attempt at the same report. A room keeps one event per id: a repeat is answered `200 {"ok":true,"id":…,"duplicate":true}`, and nothing is stored, counted or told to a live view a second time. Sanitised, never validated: an odd value costs the event its id, not a 400, and it is then stored each time it is sent. Old servers accept and discard it, so against one a repeat is a second row. |
+| `delayed_ms` | number \| null | no | — | How long the report waited on its machine before this attempt, in milliseconds, from a client that kept it through an outage ([§6](#6-what-a-client-must-do-on-failure) rule 4). Past two minutes, and with a `timestamp` that old as well, the event is stored as heard when it was made: it is history where it belongs, it moves no presence clock and shows nobody at work now. A delay claimed for an event whose `timestamp` is fresh is not believed. Old servers accept and discard it. |
 
 Extra fields are **accepted and discarded**. The request schema sets
 `additionalProperties: true`, so sending an undocumented field will not be
@@ -252,20 +254,36 @@ Readers sort by that timestamp (ties broken by insertion id), so a client whose
 clock runs slow reorders itself relative to the team. Two events posted in order
 may be stored out of order. Nothing depends on arrival order.
 
-**Deduplication — none.** The server appends. Posting the same event twice
-creates two rows. **Idempotency is the client's responsibility**, and it matters
+What a room does give is a number. Everything it hears (an event, a commit once
+its last file is in, an observation of [§15](#15-what-agents-found--kept-by-consent))
+is numbered 1, 2, 3 within the room as the server stores it, with no gap or
+repeat as written. `WS /live` frames and `GET /events?after=` carry it as `seq`.
+It orders what the server heard, never what happened, and it is what a reader
+that dropped comes back with.
+
+**Deduplication — by `report_id`, and by nothing else.** The server appends.
+Posting the same event twice with no `report_id` creates two rows; with one, the
+repeat is answered `200` with `duplicate: true` and stored nowhere
+([§4](#4-the-event)). That covers a report sent again; it does not cover a
+client run again over the same work, which makes a new report with a new id.
+**That idempotency is the client's responsibility**, and it matters
 for any client that can be re-run over the same work: a git hook that fires again
 for a commit it has already reported must remember and skip it. (What duplicates
 actually cost: an inflated event count and a file that looks hotter than it is.
 They do not corrupt anything.)
 
-**Delivery — at most once, unacknowledged in practice.** A 201 means it is
-stored. Anything else, including a timeout, means *unknown*. The correct client
-response to "unknown" is to forget it (see [§6](#6-what-a-client-must-do-on-failure)).
+**Delivery — at most once, unless the client keeps the report.** A 201 means it
+is stored, and a 200 with `duplicate: true` that it was stored before. Anything
+else, including a timeout, means *unknown*. A client that sent no `report_id`
+answers "unknown" by forgetting the event. One that sent an id may keep the
+report and send it again later, inside the bounds of
+[§6](#6-what-a-client-must-do-on-failure) rule 4, and the room still holds it once.
 
 **Durability — append-only, then pruned.** Events older than a server-configured
 retention window are deleted, counted from when the server received each one,
-never from the timestamp a client sent. The reference server's default is 7 days,
+never from the timestamp a client sent; the one exception is a report that
+waited out an outage ([§4](#4-the-event), `delayed_ms`), which is counted from
+when it was made. The reference server's default is 7 days,
 a room's own setting or its plan may keep less, and a server may make it shorter
 or longer. Do not assume a number. The room is a rolling window of recent
 activity, not a history.
@@ -292,10 +310,11 @@ the memory horizon passes ([§14](#14-work-not-merged-yet--branch-memory)).
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /check?file_path=…&developer=…` | "Has anyone *else* edited this file recently?" → `{conflict, holders[], window_minutes, scope}`. Each holder: `developer`, `task_hint`, `last_touched`, `minutes_ago`, `branch`, `file_path`, `change_summary`, `checkout_id` (the holder's edit's, or null: compared with the caller's own, it says whether their write is in the caller's working tree), `commit` when one has their write and all they changed in the file since (their own newest commit of it on that branch, or for work that landed by a squash, the default branch's commit it landed in: a caller with it in its history has their version in its tree; absent otherwise). A holder's `task_hint` is the prompt its own edit was made under; `null` when that edit had none, never a prompt another session was on. This is what a pre-edit advisory calls. With `&self=session&session_id=…` (the id the asking session's events carry, 1 to 200 characters), only that session's own edits and claims are left out, with the caller's commits and `worktree` edits, which no agent made: the caller's other sessions come back as holders and claims marked `yours: true`. `&lobby_session=…` beside them (the desktop app's session the asker runs in, 1 to 194 characters) leaves out the claims held as `lobby:<it>` too, the ones an agent's MCP server in that app session made. Any other `self`, or no usable `session_id`, is the answer without it. A `file_path` outside the repository gets `400 {"code":"file_path_not_relative"}`: nothing in the room can be on it. |
+| `GET /check?file_path=…&developer=…` | "Has anyone *else* edited this file recently?" → `{conflict, holders[], window_minutes, scope}`. Each holder: `developer`, `task_hint`, `last_touched`, `minutes_ago`, `branch`, `file_path`, `change_summary`, `checkout_id` (the holder's edit's, or null: compared with the caller's own, it says whether their write is in the caller's working tree), `commit` when one has their write and all they changed in the file since (their own newest commit of it on that branch, or for work that landed by a squash, the default branch's commit it landed in: a caller with it in its history has their version in its tree; absent otherwise). A holder's `task_hint` is the prompt its own edit was made under; `null` when that edit had none, never a prompt another session was on. This is what a pre-edit advisory calls. With `&self=session&session_id=…` (the id the asking session's events carry, 1 to 200 characters), only that session's own edits and claims are left out, with the caller's commits and `worktree` edits, which no agent made: the caller's other sessions come back as holders and claims marked `yours: true`. `&lobby_session=…` beside them (the desktop app's session the asker runs in, 1 to 194 characters) leaves out the claims held as `lobby:<it>` too, the ones an agent's MCP server in that app session made. Any other `self`, or no usable `session_id`, is the answer without it. A `file_path` outside the repository gets `400 {"code":"file_path_not_relative"}`: nothing in the room can be on it. With `&findings_for=<session id>` (the id the asking session's events carry, 1 to 200 characters) in a room that keeps what agents found ([§15](#15-what-agents-found--kept-by-consent)), the answer also has `findings`: at most three observations teammates' agents made that this session has not been told and the asker did not make, about this file first and then about files the session edited earlier, each as `GET /observations` gives one, with `about` (the file it is told for) and `blob` (the observation's git blob id of that file, or null). Answering them is recorded: the room keeps who was told what and when, and tells a session each finding once and nine in all. A client sends the parameter only if it shows findings as §15 says. Without it, or in a room that does not share, the answer is what it always was. |
 | `GET /activity?minutes=N` | Everything: sessions grouped by developer, hot files (2+ developers on one file), recent events. A session's `task_hint` and `prompt_id` are what it is on now: its newest prompt by `timestamp`, or its newest edit's while no prompt in the window has a hint or an id. With hints withheld that prompt is known by its `prompt_id` alone, and `task_hint` is `null`. Each of its `files[]` carries its own `task_hint` and `prompt_id`, from that file's newest edit: the prompt the file was edited for. |
 | `GET /team?developer=…` | The other developers at work in the room, for an agent's context → `{developers[]}`. Each: `developer`, `presence`, `minutes_ago`, `branch`, `checkout_id` (the opaque id of the checkout their newest edit was made in, null when none said), `prompt` (their newest, as for `/activity`), `agent_type`, `files` (up to five paths, newest first) and `edits`: the same files as `{file_path, task_hint, ts}`, each with the prompt it was edited for. `files` stays a list of plain paths for clients older than `edits`. |
-| `WS /live` | Push. Sends `{"type":"hello"}` on connect, then `{"type":"event","event":{…}}` per accepted write — with a sibling `diff` in a room that streams them ([§13](#13-streamed-diffs--presence-by-default-code-by-consent)). Read-only; nothing you send is interpreted. |
+| `WS /live` | Push. Sends `{"type":"hello","seq":N,"replay":"none"}` on connect, `seq` being the room's newest number, then `{"type":"event","seq":N,"event":{…}}` per accepted write — with a sibling `diff` in a room that streams them ([§13](#13-streamed-diffs--presence-by-default-code-by-consent)) — and `{"type":"observation","seq":N,"observation":{…}}` per observation in a room that keeps them ([§15](#15-what-agents-found--kept-by-consent)). A reader that dropped connects with `?after=<the last seq it saw>`: the hello says `"replay":"ok"` and every event and observation frame after that number follows, once each and in order, before anything live; diffs and claims are not replayed. More than 1,000 frames behind, more than about 750 KB of them, or behind what retention has since removed, the hello says `"replay":"reset"` and nothing is replayed: read the room again. Read-only; nothing you send is interpreted. |
+| `GET /events?after=<seq>&limit=N` | The same catching up without a socket: the room's events after that number, oldest first, each with its `seq`, and `next_after` to ask with next, absent once the reader has caught up with `head`. Without `after` the route pages backwards by `cursor`, as it always has. |
 | `POST /rooms` `{label}` | Create a room → `{room, label, server_url, dashboard_url}`. Rate-limited per IP. |
 | `GET /rooms/:id` | Does this room exist? |
 | `GET /healthz` | Open, no room required. |
@@ -344,10 +363,28 @@ somebody's `git commit`. It is a guest there.**
 3. **Say nothing on the happy path.** No stdout, no stderr, no log line. The only
    permitted output is the host's own structured response format (a Claude Code
    hook JSON payload, say) when you actually have something to say to the agent.
-4. **Never retry, never queue, never spool to disk.** A dropped event is a file
-   that momentarily looks free. A retry queue is a background process on a
-   developer's machine that outlives its usefulness and eventually surprises
-   someone. Drop it and move on.
+4. **Never retry in a hook's own time, and never start anything to retry.** A
+   hook that waits and tries again is an editor that waits, and a retry queue
+   with a process of its own is something on a developer's machine that
+   outlives its usefulness and eventually surprises someone. What a client may
+   do is *keep* a report it got no answer to (no reply, a 5xx, a 408 or a 429;
+   never another 4xx, which a second attempt would only meet again) and send it
+   when something that is running anyway has time to spare: the next hook whose
+   own report arrived, with a second of its budget left, or a process the
+   developer already runs. Only inside these bounds, all of them:
+   - the report carries a `report_id`, so the room stores it once however often
+     it is sent;
+   - a late attempt says how late (`delayed_ms`), so it shows nobody at work now;
+   - what is kept holds no text of the code (no `diff`) and no key or token:
+     those are resolved again when it is sent;
+   - the store is bounded in entries, bytes and days (the reference hooks keep
+     2,000 reports, 8 MB and 7 days, the oldest `edit` and `prompt` going first,
+     since a session's end and a commit are what a room is wrong without);
+   - no process exists only to retry.
+
+   A client that cannot hold to all five drops the report and moves on, as
+   every client did before reports had ids: a dropped event is a file that
+   momentarily looks free.
 5. **Arm a self-destruct.** A stuck socket can outlive its timeout. Set an
    unref'd timer that calls `exit(0)` a few seconds out, so a wedged client
    cannot become a wedged editor.
@@ -473,7 +510,7 @@ a mock server in ~20 lines; see `hooks/test/hooks.test.mjs` and
 - [ ] Closes a finished batch with `session_end`, even when it ran out of budget partway through the batch ([§6](#6-what-a-client-must-do-on-failure) rule 7).
 - [ ] Every network call has a hard timeout.
 - [ ] Exits 0 and silently when the server is down, slow, or hostile — proven by a test against a closed port and a deliberately hung server.
-- [ ] Never retries and never spools.
+- [ ] Never retries in a hook's own time, and keeps a report for later only inside [§6](#6-what-a-client-must-do-on-failure) rule 4's bounds, or not at all.
 - [ ] Adds no dependencies to the host it runs in.
 
 ---
@@ -729,6 +766,10 @@ crosses the wire:
   *and* the developer has not set `AGENTMASH_DIFFS=0`; a hook that cannot know the
   room's answer sends nothing, an earlier edit's answer is not this one's, and an
   answer of `false` also holds back any edit told `true` whose text has not gone yet.
+- The reference hooks report no edit to a file git ignores. A file git gave no
+  answer about (out of time, no git to run, a repository it cannot read) may be
+  one: its edit is asked about and reported by its path and line counts alone,
+  with no `diff`, no `symbols` or `imports`, and no names in `change_summary`.
 - Only `edit` events carry diffs. A diff on any other event type is ignored.
 
 ---
@@ -751,7 +792,9 @@ else is in a file. Nothing new is reported for it but whether work has merged.
   id>`), the newest edit that was not a commit, and the newest one reported as
   uncommitted (a `tool` of `worktree` or `<client>:worktree`). A commit covers
   the edits up to a second after its timestamp (git dates commits in whole
-  seconds).
+  seconds), and none from after the server received its report: an edit
+  reported after its author's commit, with a later timestamp, changed the file
+  again.
 - Work is **open** while it has not settled ([§14.3](#143-settling)), is newer
   than the horizon, and is on a branch that is named, isn't a detached HEAD's
   short sha, and isn't one work lands on: the room's default branch (GitHub's,
@@ -865,3 +908,147 @@ it had no work in the room, only claims), with `end_reason` `merged` or
   counts a file the default branch had as the branch has it at a commit since
   they parted, changed again there or not. And the commits this session was
   told about that are in the default branch now.
+
+---
+
+## 15. What agents found — kept by consent
+
+Everything above says who is working where. A room may also keep what its
+agents *found*: short observations a small model made of a session on the
+developer's own machine (the reference hooks' `agentmash observe`), told to
+teammates' agents so a thing is found once. The rules, because this is text an
+agent wrote about the code, and text other agents will read:
+
+- A room has a boolean `share_observations`, default **false**, changed with
+  `POST /rooms/settings {"share_observations": true}` by a room admin, and it
+  remembers since when (`share_since`). `GET /rooms/self` reports it. Off again,
+  no observation is accepted or shown; what the room holds stays until retention
+  takes it, or until its author takes it back: a request whose entries are all
+  `forget` is taken whether the room shares or not.
+- A client must give each developer their own veto, and send nothing a room has
+  not asked for: the reference hooks ask the room first (`GET /observations`),
+  send only what was observed after `share_since`, and send nothing a machine
+  found once it said no (`agentmash observe local on`, or
+  `AGENTMASH_OBSERVE_SHARE=0`). Taking back is not sharing: a `forget` of an
+  observation the room was already sent still goes from such a machine.
+- `POST /observations` takes `{developer, repo, entries: [...]}`, 50 entries and
+  64 KB at most. An entry is `{"op":"add","obs":{…}}`, `{"op":"seen","id","ts"}`,
+  `{"op":"forget","id","ts"}`, `{"op":"refute","id","ts","head"}`,
+  `{"op":"told","id","ts"}`, `{"op":"use","id","ts"}` or
+  `{"op":"stale","id","ts","head"}`. An
+  observation is a fact in a fixed shape:
+  an `id` its machine made, a `type` (`dead_end`, `command`, `location`, `rule`,
+  `meaning`, `cause`), a `title` of at most 120 characters, one to three `facts`
+  of at most 240, up to eight repo-relative `files` and eight `symbols`, and
+  what anchors it to the code as it was: `branch`, `head`, each file's git blob
+  id (`blobs`), the `checkout_id`. Never a prompt, a tool's input or output, a
+  transcript or a path from outside the repository.
+- A quote needs an author. A room key alone is refused (`403 author_required`):
+  an observation is stored under the login it is signed in as, or its developer
+  token's name, as an event is ([§4](#4-the-event)).
+- The server checks again what the machine checked, and refuses the entry, not
+  the request, for each: text that addresses the reader or gives an order
+  (`orders`), a link (`link`), a key in a shape it knows (`secret`), a path that
+  is not the repository's (`path`), one made before the room asked
+  (`before_sharing`), a shape that is not the one above (`shape`), the
+  limits a developer and a room are held to (`daily_limit`, `room_full`), and
+  a `refute`, a `told`, a `use` or a `stale` of an id that is no finding of the
+  room's (`no_finding`). The
+  answer is `200 {stored, known, refused: [{id, code}], seq}`. An entry is known
+  by its op and id, so one sent again is counted as `known` and stored once.
+- A `forget` by an observation's own author takes its words out of the room:
+  what the room's log holds of it is cut to its id, a finding nobody else made
+  keeps no text, and one a teammate also made goes on in the teammate's words.
+  Anyone else's `forget` of that id changes nothing.
+- A `seen` says a machine saw the finding `id` again, and when (`ts`). From a
+  developer who has a telling of that finding, by the id of their own
+  observation or the room's id for it, the finding is heard again. From a
+  developer who has none, it says their machine's observer found the same
+  thing and named the room's finding in place of a telling in other words:
+  they are one more person who found it (`people`), with no words of their
+  own, and sent again it is seen again. Two developers' `seen` of one finding
+  at one time are two entries. Either way the counts below start
+  from none, as with a new telling. A `seen` of an id the room does not hold
+  changes nothing.
+- A `refute` says a session was told the finding `id`, checked it against the
+  repository and found it false: the id, when (`ts`), and the commit the
+  session's checkout was at (`head`, which may be null). Never why: what the
+  session saw stays on its machine, and a field that says it is not kept. The
+  id is a finding the room holds, under its own id or the id of any telling
+  that went into it; it is taken as an `add` is, in a room that shares and
+  under the same rules for who may write, and one sent again is `known`. The
+  room counts the developers who refuted a finding since it last heard that
+  finding made or seen again, each once and its author as anyone, in the order
+  it heard them: `GET /observations` gives the count as `refuted`. A finding
+  with `refuted` of 1 or more is told to no session by `GET /check`, and a
+  reader tells it to none either, until an `add` that is another telling of it
+  or a `seen` of it reaches the room, which starts the count from none. A
+  client sends a `refute` only for a finding the room has, not one of a
+  teammate's finding made before the room last heard that finding found
+  (`last_ts`), and none from a machine that keeps what it finds home. A
+  refutation is no frame of `WS /live` or of the stream.
+- A `stale` says a machine held the finding `id` to its own checkout before
+  telling it and found the lines the finding is about changed, or its file
+  gone: the id, when (`ts`), and the commit that checkout was at (`head`, 7 to
+  64 hex characters, which may not be left out here as it may of a `refute`).
+  It means that on a checkout whose commit is in the default branch's history,
+  with the file as that commit has it, the lines the finding is held to have
+  changed or the file is gone, and a client sends it of nothing else. Never
+  which path, which line or why: nothing else is sent, and a field that says
+  any of it is not kept. It is taken as a `refute` is, of a finding the room
+  holds and under the same rules for who may write, and one sent again is
+  `known`. The room counts the developers who voted a finding stale since it
+  last heard that finding made or seen again, each once and its author as
+  anyone, in the order it heard them: `GET /observations` gives the count as
+  `stale`, and never the names. A finding with `stale` of 1 or more is told to
+  no session by `GET /check`, as one with `refuted` is, until an `add` that is
+  another telling of it or a `seen` of it reaches the room, which starts the
+  count from none. The two counts are apart: a vote is no refutation, and
+  neither takes from the other. A stale vote is no frame of `WS /live` or of
+  the stream.
+- A `told` says a session was told the finding `id` and that its machine
+  looked at what came of it; a `use`, that the session went on to act on it.
+  Each is the id and when (`ts`). Never which session, and never what it did:
+  both stay on its machine, and a field that says either is not kept. They are
+  taken as a `refute` is, of a finding the room holds and under the same rules
+  for who may write, and one sent again is `known`; a `told` and a `use` of
+  one finding at one time are two entries. The room counts them, one for each
+  entry, since it last heard the finding made or seen again and in the order
+  it heard them: `GET /observations` gives the counts as `told` and `used`,
+  and `used` is never above `told` (a `use` the room heard no `told` for is
+  counted as both). An `add` that is another telling of the finding, or a
+  `seen` of it, starts both from none. The counts change nothing the room
+  tells. They are for a reader, which orders by them the findings it picks
+  what to tell a session from: the ones sessions acted on first, by the share
+  of the sessions told that did, then the ones told to nobody, then the ones
+  told and acted on by none. The reference hooks leave out of a briefing a
+  finding told three times or more that no session acted on, and tell it
+  everywhere else as before. A client sends each once a session and finding,
+  the `told` when it first looks at what a session did with the finding beside
+  it, by the rules a `refute` is sent by. Neither is a frame of `WS /live` or
+  of the stream.
+- `GET /observations?file=…&about=…&limit=N` gives a room's findings back,
+  newest heard first: the same finding from two machines is one, with `people`
+  saying how many found it, and `commit` naming the commit that followed it in
+  its checkout, when one did within a day, and `blobs` giving the git blob id of
+  each of its files as the finder had it (`{}` for a finding stored without), by
+  which a reader holds the finding to its own checkout, and `refuted` saying how
+  many people's sessions found it false since it was last found (0 for nearly
+  all), and `told` and `used` saying how many sessions were told it and how
+  many of those acted on it since then, and `stale` saying how many people's
+  machines found its lines changed since then. A room that does not share answers
+  `{"sharing": false, "observations": []}`.
+- A reader shows an observation as what it is: a quote with its author and its
+  age, marked as information and not as instructions, and never as the room's
+  own voice. The reference hooks print at most eight lines at a session's start.
+- A session that is already running hears of a teammate's finding before its
+  next edit: the check it makes before an edit carries it (`GET /check` with
+  `findings_for`, [§5](#5-what-the-server-promises)). The reference hooks print
+  at most three, a line each, under the header a session's start uses; check
+  the text again before printing it, and print nothing of a finding that gives
+  an order or carries a link; say when the file has changed since the finding
+  was made, and whether the commit that followed it is in this checkout; and
+  send no `findings_for` on a machine that set `AGENTMASH_FINDINGS=0`.
+- A room keeps a finding as long as its plan keeps history, counted from when
+  it was last heard (90 days on a server with no plans), then removes it with
+  everything it was made from.

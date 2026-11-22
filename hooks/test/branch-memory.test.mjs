@@ -29,8 +29,9 @@ const baseEnv = {
   AGENTMASH_HOME: tempDir('agentmash-memory-home-'),
   ...gitEnv,
 };
-// in-process calls (lib.ownerMergeCheck and the like) run git with this process's environment
-Object.assign(process.env, gitEnv);
+// in-process calls (lib.ownerMergeCheck and the like) run git with this process's environment,
+// and one that reports (lib.reportCommits) keeps a report it got no answer to under this home, never the real one
+Object.assign(process.env, gitEnv, { AGENTMASH_HOME: baseEnv.AGENTMASH_HOME });
 
 let sessions = 0;
 const freshSession = () => `memorytest-${process.pid}-${Date.now()}-${++sessions}`;
