@@ -20,8 +20,8 @@ We don't run a bug bounty and don't pay for reports.
 
 ## Rules for testing
 
-- Test against your own rooms. A room on agentmash.dev is free for 2 developers, and the
-  test suites run every client against a local mock server.
+- Test against your own rooms. The free plan on agentmash.dev includes 40 agent-hours a
+  month for the whole team, and the test suites run every client against a local mock server.
 - Don't read, change or delete data in rooms that aren't yours, and don't use keys or tokens
   you find that belong to someone else.
 - Don't attack agentmash.dev's infrastructure: no denial of service, no load or volume
