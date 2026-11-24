@@ -16,6 +16,7 @@
 //   npx agentmash inbox     the requests teammates sent you, and yours to them (inbox.mjs)
 //   npx agentmash hook      the generic hook's command line, for any agent's hook settings (hook.mjs)
 //   npx agentmash digest    the room's week, to the terminal, Slack or Telegram (digest.mjs)
+//   npx agentmash observe   keep what Claude Code finds out as notes for its next session, and for the team's where a room shares
 
 import fs from 'node:fs';
 import net from 'node:net';
@@ -2112,12 +2113,49 @@ function agoText(at) {
   return `${Math.round(minutes / (24 * 60))} days ago`;
 }
 
+// The hooks' log of reports holds three kinds of line (hooks/lib.mjs,
+// "reports an outage would lose"): a report that did not arrive and is lost;
+// the same with `kept: true`, for one the outbox holds to send again; and one
+// from the outbox itself (`hook: 'outbox'`) for a kept report it gave up on,
+// `expired` after its days there, `overflow` when more waited than it holds,
+// or `refused` when the room turned the later attempt away. A kept report is
+// not lost: it waits (doctorOutbox counts those), or it has arrived since,
+// and one given up on gets the outbox's own line. So what never reached the
+// room is every line but the kept ones, each report counted once.
+const lostReports = (lines) => lines.filter((f) => f.kept !== true);
+const droppedFromOutbox = (f) => f.hook === 'outbox';
+
+/** What became of a report that never reached the room, as doctor groups them: one line a cause. */
+function reportLabel(f) {
+  const refusal = `(${[f.status, f.code].filter(Boolean).join(' ')})`;
+  if (droppedFromOutbox(f)) {
+    if (f.outcome === 'expired') return 'kept to send again, then given up on as too old';
+    if (f.outcome === 'overflow') return 'kept to send again, then dropped from a full outbox';
+    if (f.outcome === 'refused') return `kept to send again, then refused ${refusal}`;
+    // an outcome a later version of the hooks gives one
+    return `kept to send again, then dropped (${f.outcome || 'unknown'})`;
+  }
+  if (f.outcome === 'refused') return `refused ${refusal}`;
+  return f.outcome === 'cut_off' ? 'cut off' : `no reply (${f.error || 'unknown'})`;
+}
+
 /**
  * What a report that failed this way means, and what to do about it, in one
  * line. `budgetMs` is the timeout_ms the hooks run with here, if any, and
- * `lib` the hooks' own, for the deadline no timeout_ms goes past.
+ * `lib` the hooks' own, for the deadline no timeout_ms goes past and for what
+ * the outbox holds.
  */
 function reportFix(f, { repoInstall, budgetMs = 0, lib = null }) {
+  if (droppedFromOutbox(f) && f.outcome !== 'refused') {
+    const reach = `check ${f.url || 'the server'} is up and this machine can get to it`;
+    if (f.outcome === 'expired') {
+      return `the server took none of them in the ${lib?.OUTBOX_LIMITS?.days ?? 7} days a report is kept: ${reach}`;
+    }
+    if (f.outcome === 'overflow') {
+      return `more reports waited than the ${lib?.OUTBOX_LIMITS?.entries ?? 2000} the outbox holds, and the oldest edits and prompts go first: ${reach}`;
+    }
+    return `the outbox gave them up: ${reach}`;
+  }
   if (f.outcome === 'refused') {
     switch (f.code) {
       case 'token_required':
@@ -2178,22 +2216,19 @@ function reportFix(f, { repoInstall, budgetMs = 0, lib = null }) {
 /**
  * The reports that never reached the room from this checkout in the last
  * week, one line per cause, with what to do. The hooks run in the background,
- * so this log is the only place those failures were ever written down.
- * Returns how many problems that makes: a warning, but for a plan that
- * turned reports away in the last day.
+ * so this log is the only place those failures were ever written down. A
+ * report the hooks kept to send again is not one of them (lostReports); one
+ * the outbox then gave up on is, with why it did. Returns how many problems
+ * that makes: a warning, but for a plan that turned reports away in the last
+ * day.
  */
 async function doctorReports(repo, { repoInstall, budgetMs }) {
   const lib = await hooksLib();
-  const failures = lib?.readReportFailures?.({ sinceMs: Date.now() - 7 * DAY_MS, repo }) ?? [];
+  const failures = lostReports(lib?.readReportFailures?.({ sinceMs: Date.now() - 7 * DAY_MS, repo }) ?? []);
   if (failures.length === 0) return 0;
   const groups = new Map();
   for (const f of failures) {
-    const label =
-      f.outcome === 'refused'
-        ? `refused (${[f.status, f.code].filter(Boolean).join(' ')})`
-        : f.outcome === 'cut_off'
-          ? 'cut off'
-          : `no reply (${f.error || 'unknown'})`;
+    const label = reportLabel(f);
     const group = groups.get(label) ?? { label, count: 0, last: f };
     group.count += 1;
     if (Date.parse(f.at) >= Date.parse(group.last.at)) group.last = f;
@@ -2218,10 +2253,14 @@ async function doctorReports(repo, { repoInstall, budgetMs }) {
   return 1;
 }
 
-/** One line when reports from this machine have failed lately: otherwise a quiet board looks like a quiet team. */
+/**
+ * One line when reports from this machine have failed lately: otherwise a
+ * quiet board looks like a quiet team. The ones kept to send again are not
+ * counted: they are late, not lost.
+ */
 async function warnFailedReports(repo) {
   const lib = await hooksLib();
-  const failures = lib?.readReportFailures?.({ sinceMs: Date.now() - DAY_MS, repo }) ?? [];
+  const failures = lostReports(lib?.readReportFailures?.({ sinceMs: Date.now() - DAY_MS, repo }) ?? []);
   if (failures.length === 0) return false;
   warn(
     `${plural(failures.length, 'report')} from this machine never reached the room in the last 24 hours — ` +
@@ -2473,6 +2512,8 @@ async function cmdDoctor(args) {
   }
 
   await doctorCrew(repo);
+  // this machine's, whatever room the repository carries
+  problems += await doctorObserve();
 
   // who the hooks report as (getDeveloper in hooks/lib.mjs): AGENTMASH_DEV,
   // else the login this machine is signed in as for this server, else git's email
@@ -2491,6 +2532,8 @@ async function cmdDoctor(args) {
     repoInstall: Boolean(config),
     budgetMs: Number(process.env.AGENTMASH_TIMEOUT_MS || config?.timeout_ms) || 0,
   });
+  // and the ones an outage kept, which wait on this machine for the server
+  await doctorOutbox();
 
   if (!url || !room) {
     console.log(`\n${c.red('Not connected')} — fix the items above, then re-run doctor.\n`);
@@ -3028,14 +3071,30 @@ async function revokeDeveloper(conn, developer) {
 // run with --global, and find the room for each checkout themselves.
 
 /**
+ * Observing's scripts (hooks/observe.mjs says what each is): the two hooks
+ * `npx agentmash observe on` registers, the worker the first of them starts,
+ * what the worker syncs with a room that shares (the only one of them that
+ * talks to a server), and what they all share. At user level only, never
+ * committed, and copied with the rest whether observing is on or not: they
+ * run nothing until it is turned on, and a login after that keeps them the
+ * version of everything beside them.
+ */
+const OBSERVE_SPOOL = 'observe_spool.mjs';
+const OBSERVE_RECALL = 'observe_recall.mjs';
+const OBSERVE_WORKER = 'observe_worker.mjs';
+const OBSERVE_SYNC = 'observe_sync.mjs';
+const OBSERVE_FILES = ['observe.mjs', OBSERVE_SPOOL, OBSERVE_WORKER, OBSERVE_RECALL, OBSERVE_SYNC];
+
+/**
  * The hooks a machine sign-in installs: a repository install's, less the MCP
  * launcher. The MCP server goes with them, though a sign-in registers no
  * server: a repository's launcher starts this copy when it is newer than the
  * one committed beside it, so a repo that ran init long ago does not hold this
  * developer back. And the generic hook (agent_hook.mjs) that an agent whose
- * hooks speak another dialect runs: at user level only, never committed.
+ * hooks speak another dialect runs: at user level only, never committed. And
+ * observing's scripts (OBSERVE_FILES), whether it is on or not.
  */
-const MACHINE_HOOK_FILES = [...HOOK_FILES, ...MCP_SERVER_FILES, 'agent_hook.mjs'];
+const MACHINE_HOOK_FILES = [...HOOK_FILES, ...MCP_SERVER_FILES, 'agent_hook.mjs', ...OBSERVE_FILES];
 /**
  * The generic hook's dialects, one file each in the hooks' dialects/ folder:
  * every one there is copied, so a new one needs no line here.
@@ -3095,8 +3154,18 @@ function writeUserLogin(entry) {
   fs.rmSync(path.join(agentmashHome(), 'rooms.json'), { force: true });
 }
 
-/** Whether a settings entry is one of ours: its command runs a script from ~/.agentmash/hooks. */
+/** Whether a settings entry is observing's: its command runs one of observing's scripts from ~/.agentmash/hooks. */
+const OBSERVE_HOOK = /[\\/]\.agentmash[\\/]hooks[\\/]observe_\w+\.mjs/;
+const isObserveHookEntry = (entry) => (entry?.hooks ?? []).some((h) => hookParts(h).some((part) => OBSERVE_HOOK.test(part)));
+
+/**
+ * Whether a settings entry is one of ours: its command runs a script from
+ * ~/.agentmash/hooks. Observing's run from there too and are not counted:
+ * `observe on` puts those in and `observe off` takes them out, so a login
+ * leaves them where they are, and disconnecting Claude Code leaves them in.
+ */
 function isMachineHookEntry(entry) {
+  if (isObserveHookEntry(entry)) return false;
   return (entry?.hooks ?? []).some((h) =>
     [h?.command, ...(Array.isArray(h?.args) ? h.args : [])].some(
       (part) => typeof part === 'string' && /[\\/]\.agentmash[\\/]hooks[\\/]/.test(part)
@@ -3104,14 +3173,15 @@ function isMachineHookEntry(entry) {
   );
 }
 
-function readClaudeSettings() {
+/** Claude Code's own settings, to write back; `rerun` is the command to give someone whose file cannot be read. */
+function readClaudeSettings(rerun = 'npx agentmash login') {
   const file = claudeSettingsFile();
   if (!fs.existsSync(file)) return {};
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
-    die(`${file} is not valid JSON — fix it, then run: npx agentmash login`);
+    die(`${file} is not valid JSON — fix it, then run: ${rerun}`);
   }
 }
 
@@ -3150,7 +3220,8 @@ function machineHookEntry(want) {
 /**
  * Copy the scripts every connected agent runs to ~/.agentmash/hooks: the
  * hooks, the MCP server and its helpers, the generic hook and its dialects,
- * and each agent's own adapter (Cursor's), beside the lib.mjs they all share.
+ * observing's, and each agent's own adapter (Cursor's), beside the lib.mjs
+ * they all share.
  */
 function copyMachineHookFiles() {
   const source = hookSourceDir();
@@ -3184,8 +3255,12 @@ function installClaudeHooks() {
   return true;
 }
 
-/** Take our hooks back out of Claude Code's user settings; anything else there is left as it was. Returns whether any were there. */
-function removeClaudeHooks() {
+/**
+ * Take our hooks back out of Claude Code's user settings; anything else there
+ * is left as it was. Returns whether any were there. `ours` says which: a
+ * sign-in's, or observing's (isObserveHookEntry) for `observe off`.
+ */
+function removeClaudeHooks(ours = isMachineHookEntry) {
   const file = claudeSettingsFile();
   if (!fs.existsSync(file)) return { removed: false };
   let settings;
@@ -3199,7 +3274,7 @@ function removeClaudeHooks() {
   let removed = false;
   for (const [event, entries] of Object.entries(settings.hooks)) {
     if (!Array.isArray(entries)) continue;
-    const kept = entries.filter((entry) => !isMachineHookEntry(entry));
+    const kept = entries.filter((entry) => !ours(entry));
     if (kept.length !== entries.length) removed = true;
     if (kept.length) settings.hooks[event] = kept;
     else delete settings.hooks[event];
@@ -3585,6 +3660,11 @@ async function cmdLogout(args = {}) {
   const ended = login
     ? await api('POST', `${login.url}/api/logout`, { user: login.token, ...(args.all ? { body: { all: true } } : {}) })
     : null;
+  // Observing goes with the rest, where it is on: its hooks run scripts from
+  // the folder that is removed next. What it observed stays on the machine.
+  const observe = await observeLib();
+  const observing = observe && (observe.isEnabled() || machineHookEntries(isObserveHookEntry).length > 0);
+  if (observing) turnObservingOff(observe);
   const left = removeMachineHooks();
   if (!login || ended.ok) fs.rmSync(userLoginFile(), { force: true });
   fs.rmSync(path.join(agentmashHome(), 'rooms.json'), { force: true });
@@ -3606,6 +3686,7 @@ async function cmdLogout(args = {}) {
     else if (login && ended.ok) ok(`signed out ${c.cyan(login.login || '')}`);
     sayLeftBehind(left);
   }
+  if (observing) ok(`observing is off  ${c.dim('what it observed is kept on this machine')}`);
   if (roomTokens) {
     ok(`removed the developer ${roomTokens === 1 ? 'token' : 'tokens'} npx agentmash login --room kept for ${plural(roomTokens, 'room')}`);
   }
@@ -3802,8 +3883,12 @@ async function statusMachine(repo) {
   console.log('');
 }
 
-/** The entries a sign-in put in Claude Code's own settings, each with its event; [] when there is nothing to read. */
-function machineHookEntries() {
+/**
+ * The entries a sign-in put in Claude Code's own settings, each with its
+ * event; [] when there is nothing to read. Or, with `ours`, the ones
+ * `observe on` put there (isObserveHookEntry).
+ */
+function machineHookEntries(ours = isMachineHookEntry) {
   let settings;
   try {
     settings = JSON.parse(fs.readFileSync(claudeSettingsFile(), 'utf8'));
@@ -3812,7 +3897,7 @@ function machineHookEntries() {
   }
   const hooks = settings?.hooks && typeof settings.hooks === 'object' ? settings.hooks : {};
   return Object.entries(hooks).flatMap(([event, entries]) =>
-    Array.isArray(entries) ? entries.filter(isMachineHookEntry).map((entry) => ({ event, entry })) : []
+    Array.isArray(entries) ? entries.filter(ours).map((entry) => ({ event, entry })) : []
   );
 }
 
@@ -3894,6 +3979,8 @@ async function doctorMachine(repo, { login, problems }) {
     );
   }
 
+  problems += await doctorObserve();
+
   // each other agent login connected: its entries there, their scripts there, and where the agent asks for it (Codex), approved
   for (const { id, agent, found, state } of here) {
     // Claude Code is checked above, and so is one that runs its hooks
@@ -3950,6 +4037,7 @@ async function doctorMachine(repo, { login, problems }) {
 
   await doctorCrew(repo);
   problems += await doctorReports(root || repo, { repoInstall: false, budgetMs: Number(process.env.AGENTMASH_TIMEOUT_MS) || 0 });
+  await doctorOutbox();
 
   if (problems > 0) {
     console.log(`\n${c.red(`${problems} problem(s) found.`)} Fix the ✗ lines above.\n`);
@@ -3959,6 +4047,672 @@ async function doctorMachine(repo, { login, problems }) {
   } else {
     console.log(`\n${c.green('This machine is signed in and its hooks are installed.')} Run doctor in a repository to check that one.\n`);
   }
+}
+
+// ── observing, on this machine ─────────────────────────────────────────────
+// `npx agentmash observe on` is a switch for one machine
+// (docs/plans/enrichment-step1-observer.md): what Claude Code does here is
+// spooled by a hook, a worker has a small model with no tools turn it into
+// short observations, and a later session in the same repository is told the
+// ones that bear on what it does. Off until someone turns it on. Its hooks go
+// in the developer's own Claude Code settings, never a repository's, so a
+// teammate who has not turned it on runs nothing new. What the hooks, the
+// worker and this command share is hooks/observe.mjs: where things live, the
+// config, the counters, the log.
+//
+// What it keeps leaves the machine only for a room that shares
+// (docs/plans/enrichment-step2-room.md): `observe share on`, run with a
+// room's key, is that room's switch, off until someone turns it on, and
+// `observe local on` is one machine's veto beside it. The worker does the
+// sending and the fetching (hooks/observe_sync.mjs); this command only reads
+// what that left on disk.
+
+/** hooks/observe.mjs, from the copy this invocation would install, as hooksLib reads lib.mjs; null when it will not load. */
+async function observeLib() {
+  try {
+    return await import(pathToFileURL(path.join(hookSourceDir(), 'observe.mjs')).href);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What syncing with a room left on this machine, a row for each repository
+ * that has synced (syncStatus in hooks/observe_sync.mjs, which reads files
+ * and asks no server). None where nothing has synced, and none where the
+ * script is not there or will not load: status and doctor then have nothing
+ * to say of it, and say the rest.
+ */
+async function syncRows() {
+  try {
+    const sync = await import(pathToFileURL(path.join(hookSourceDir(), OBSERVE_SYNC)).href);
+    const rows = sync.syncStatus?.();
+    return Array.isArray(rows) ? rows.filter((row) => row && typeof row === 'object') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** "12 min ago" for a time kept in milliseconds, or null for none: a cursor that never moved is 0. */
+const agoMs = (ms) => (Number.isFinite(ms) && ms > 0 && ms < 8.64e15 ? agoText(new Date(ms).toISOString()) : null);
+
+/**
+ * Whether this machine sends what it finds to a room that shares, or keeps
+ * it home whatever the room is set to. The veto is the hooks' to read, and
+ * vetoesSharing in hooks/observe.mjs is the one place the rule is written:
+ * `"share": false` in observe.json (`observe local on`), or
+ * AGENTMASH_OBSERVE_SHARE set to 0, false, off or no, in any letter case
+ * (envSwitch in hooks/lib.mjs). The worker asks there before it sends
+ * anything, so this asks there too. The copy after it is for hooks that do
+ * not export it, and is the same rule.
+ */
+const OBSERVE_SHARE_OFF = ['0', 'false', 'off', 'no'];
+function sendsObservations(observe) {
+  if (typeof observe.vetoesSharing === 'function') return observe.vetoesSharing() !== true;
+  const word = String(process.env.AGENTMASH_OBSERVE_SHARE ?? '').trim().toLowerCase();
+  return observe.readConfig().share !== false && !OBSERVE_SHARE_OFF.includes(word);
+}
+
+// The tools recall runs before: every one. What was picked for a session's
+// prompt is said before its next call, whatever the tool (a read too). What
+// is known of a file is said before an edit of it or a shell command that
+// names it, and the hook itself keeps that from every other tool
+// (recallBefore in hooks/observe.mjs).
+const OBSERVE_RECALL_TOOLS = '*';
+
+/**
+ * One of observing's hooks, written as a sign-in's are (machineHookEntry):
+ * node and the script in ~/.agentmash/hooks, with no shell between, then the
+ * word that says what the script is run for.
+ */
+const observeHook = (script, kind, extra = {}) => ({
+  type: 'command',
+  command: 'node',
+  args: [path.join(machineHookDir(), script), kind],
+  ...extra,
+});
+
+/**
+ * Observing's entry for each event, in Claude Code's own settings. Capture
+ * (observe_spool.mjs) runs after every tool call (`*`), a failed one too, on
+ * a prompt and as a turn ends. It writes one small file and asks nobody
+ * anything, about thirty milliseconds, and it is waited for all the same: a
+ * background hook is not sure to run. In a headless session (`claude -p`) of
+ * a few seconds, on Claude Code 2.1.304, background hooks on a tool call and
+ * on the turn's end never ran, the session was gone first, and the worker
+ * saw a turn with nothing in it. Waited for, the events also land in the
+ * order they happened. Recall (observe_recall.mjs) is waited for as well,
+ * since its whole purpose is to speak in time: the index as a session
+ * starts, what was picked for a prompt before the session's next tool call,
+ * and what is known about a file before it is edited or a command runs.
+ */
+const observeEntries = () => ({
+  PostToolUse: { matcher: '*', hooks: [observeHook(OBSERVE_SPOOL, 'tool', { timeout: 2 })] },
+  PostToolUseFailure: { matcher: '*', hooks: [observeHook(OBSERVE_SPOOL, 'fail', { timeout: 2 })] },
+  UserPromptSubmit: { hooks: [observeHook(OBSERVE_SPOOL, 'prompt', { timeout: 2 })] },
+  Stop: { hooks: [observeHook(OBSERVE_SPOOL, 'stop', { timeout: 2 })] },
+  SessionStart: { hooks: [observeHook(OBSERVE_RECALL, 'session_start', { timeout: 3 })] },
+  PreToolUse: { matcher: OBSERVE_RECALL_TOOLS, hooks: [observeHook(OBSERVE_RECALL, 'pre_tool', { timeout: 2 })] },
+});
+
+/**
+ * Put observing's entries in Claude Code's user settings. An event that holds
+ * this version's entry, and nothing else of observing's, is left as it is,
+ * wherever in the event it stands, so turning it on twice changes nothing,
+ * with a login in between or not; anything else of observing's there is
+ * replaced. Every other entry stays where it was. Returns whether the
+ * settings changed: written only when they did.
+ */
+function installObserveHooks() {
+  const settings = readClaudeSettings('npx agentmash observe on');
+  const hooks = settings.hooks && typeof settings.hooks === 'object' ? settings.hooks : {};
+  let changed = false;
+  for (const [event, want] of Object.entries(observeEntries())) {
+    const entries = Array.isArray(hooks[event]) ? hooks[event] : [];
+    const ours = entries.filter(isObserveHookEntry);
+    if (ours.length === 1 && JSON.stringify(ours[0]) === JSON.stringify(want)) continue;
+    hooks[event] = [...entries.filter((entry) => !isObserveHookEntry(entry)), want];
+    changed = true;
+  }
+  if (!changed) return false;
+  settings.hooks = hooks;
+  writeClaudeSettings(settings);
+  return true;
+}
+
+/**
+ * The observe worker's pid while one runs, else null: the pid in its lock
+ * folder, when the process by that number is an observe worker by its
+ * command. The lock outlives a worker that was killed, and in time its pid
+ * goes to some other process, which `observe off` must never signal. Where
+ * `ps` cannot say (Windows, where the worker does not run yet), none is found.
+ */
+function observeWorkerPid(observe) {
+  let pid = 0;
+  try {
+    pid = Number(fs.readFileSync(path.join(observe.observePaths().lock, 'pid'), 'utf8').trim());
+  } catch {
+    // no lock: no worker
+  }
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  try {
+    const command = execFileSync('ps', ['-ww', '-p', String(pid), '-o', 'command='], {
+      encoding: 'utf8',
+      timeout: 3000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return command.includes(OBSERVE_WORKER) ? pid : null;
+  } catch {
+    return null; // no process by that number
+  }
+}
+
+/**
+ * Turn observing off: the config first, which its hooks read on every call,
+ * so a session already open spools nothing more; then its entries out of
+ * Claude Code's settings, and the worker stopped (it ends its observer and
+ * clears its lock on the way out; a batch it was in the middle of stays in
+ * the spool). What was observed stays. { removed, invalid, worker }: whether
+ * any entries were there, whether the settings could not be read, and the
+ * pid of the worker that was stopped.
+ */
+function turnObservingOff(observe) {
+  observe.writeConfig({ enabled: false });
+  const { removed, invalid = false } = removeClaudeHooks(isObserveHookEntry);
+  const worker = observeWorkerPid(observe);
+  try {
+    if (worker) process.kill(worker, 'SIGTERM');
+  } catch {
+    // it left by itself in between
+  }
+  return { removed, invalid, worker };
+}
+
+const batches = (n) => (n === 1 ? '1 batch' : `${n} batches`);
+
+/**
+ * How observing is doing, a line each: claude on the PATH, its hooks in
+ * Claude Code's settings where it is on, the worker, what waits in the spool,
+ * the batches the observer failed on, today's runs against the cap, and a
+ * pause or a hold. `full` is `observe status`, which also says how many
+ * batches were skipped and how many observations were added today. Returns
+ * how many of the lines are problems: none while observing is off, when
+ * nothing has to be there. A command that is refused for its sign-in is
+ * one: nothing is observed until the person signs in again.
+ */
+function sayObserving(observe, { full = false } = {}) {
+  const config = observe.readConfig();
+  const on = config.enabled === true;
+  let problems = 0;
+  const fail = (message) => {
+    bad(message);
+    problems++;
+  };
+
+  const bin = which('claude', agentPlaces().toolPath);
+  if (bin) ok(`claude is on the PATH, for the observer  ${c.dim(shown(bin))}`);
+  else (on ? fail : info)('claude is not on the PATH: the observer is Claude Code run with no tools (claude -p), and nothing is observed without it');
+
+  if (on) {
+    // An event's hook has to be this version's, its matcher too, and not only there: a login copies the new
+    // scripts and leaves observing's entries as they are, so an install from before the briefing has a recall
+    // hook that runs before an edit or a command and no other tool. `observe on` is what replaces one
+    // (installObserveHooks, which asks the same of an entry).
+    const ours = machineHookEntries(isObserveHookEntry);
+    const events = new Set(ours.map(({ event }) => event));
+    const wanted = Object.entries(observeEntries());
+    const lacking = wanted.filter(([event]) => !events.has(event)).map(([event]) => event);
+    const older = wanted
+      .filter(([event, want]) => events.has(event) && !ours.some((row) => row.event === event && JSON.stringify(row.entry) === JSON.stringify(want)))
+      .map(([event]) => event);
+    if (lacking.length) fail(`Claude Code has no observe hook for ${andList(lacking)} ${c.dim(`(${claudeSettingsFile()})`)} — run: npx agentmash observe on`);
+    if (older.length) fail(`Claude Code's observe hook for ${andList(older)} is not this version's ${c.dim(`(${claudeSettingsFile()})`)} — run: npx agentmash observe on`);
+    if (!lacking.length && !older.length) ok(`observe hooks installed in Claude Code  ${c.dim(`${shown(claudeSettingsFile())} · ${plural(events.size, 'event')}`)}`);
+  }
+
+  const pid = observeWorkerPid(observe);
+  if (pid) info(`the observe worker is running  ${c.dim(`pid ${pid}`)}`);
+  else info(`the observe worker is not running${on ? ': one starts with the next thing an agent does, and stops after five idle minutes' : ''}`);
+
+  const spool = observe.readSpool();
+  const waiting = spool.reduce((n, session) => n + session.entries.length, 0);
+  info(waiting ? `waiting to be observed: ${plural(waiting, 'event')} in ${plural(spool.length, 'session')}` : 'nothing is waiting to be observed');
+
+  const dead = observe.deadCount();
+  if (dead) {
+    // kept a week (the worker's sweep), and tried again by `observe retry`, where the hooks beside this have one
+    const again = typeof observe.retryDead === 'function' ? `: ${c.bold('npx agentmash observe retry')} tries ${dead === 1 ? 'it' : 'them'} again, within a week` : '';
+    warn(`${dead} dead ${dead === 1 ? 'batch' : 'batches'}, which the observer failed on twice${again}  ${c.dim(shown(observe.observePaths().dead))}`);
+  } else info('no dead batches');
+
+  const state = observe.readState();
+  // the cap as the worker reads it: a config that names none a number can be gets the default
+  const cap = typeof config.daily_cap === 'number' && config.daily_cap >= 0 ? config.daily_cap : observe.DEFAULT_CONFIG.daily_cap;
+  const runs = `observer runs today: ${state.runs} of ${cap}`;
+  // runs that ended without an answer count against nothing, and are said where there were any
+  const failed = full && state.failed > 0 ? ` · ${plural(state.failed, 'run')} without an answer` : '';
+  const rest = full ? ` · ${batches(state.skipped)} skipped · ${plural(state.observations, 'observation')} added${failed}` : '';
+  // batches stop short of the cap, by the share the worker keeps for briefings; a batch past either is dropped, as ever
+  const forBatches = typeof observe.batchCap === 'function' ? observe.batchCap(cap) : cap;
+  if (state.runs >= cap) warn(`${runs}, the cap: nothing more is observed today${rest}`);
+  else if (state.runs - (Number(state.brief_runs) || 0) >= forBatches) {
+    warn(`${runs}: batches have had their ${forBatches}, and the rest are kept for briefings: no more batches are observed today${rest}`);
+  } else info(`${runs}${rest}`);
+  // the pinned model id refused by this machine's claude, and the alias asked for in its place (observe.observerModel)
+  if (state.refused_model && typeof observe.observerModel === 'function') {
+    info(`the observer asks for the model ${observe.observerModel(config, state)}: this machine's claude does not take ${state.refused_model}, and ${c.bold('npx agentmash observe retry')} asks for it again`);
+  }
+  // "14:32", by this machine's clock
+  const until = new Date(state.paused_until).toTimeString().slice(0, 5);
+  if (state.hold) {
+    // The observer's command does not answer (noteFailedStart in hooks/observe.mjs): held, and tried once at the
+    // end of each hold. What it said is its own words, cut and cleaned as a failed sync's are.
+    const said = syncErrorText({ what: state.hold.why });
+    const since = agoMs(state.hold.since);
+    const when = state.paused_until > Date.now() ? `held until ${until}` : 'tried again with its next run';
+    // the model it was asked for, where the command named that as its trouble: no sign-in mends it (observe.mjs, readRun)
+    const asked = typeof observe.observerModel === 'function' ? observe.observerModel(config, state) : config.model;
+    const trouble = state.hold.model ? `does not take the model ${asked}` : state.hold.access ? 'was refused for its sign-in or its access' : 'exits with an error';
+    const what = `the observer is ${when}: its command ${trouble}, ${plural(Number(state.failing) || 1, 'run')} in a row${since ? ` since ${since}` : ''}, and what is spooled waits, a day at most`;
+    const then = state.hold.model
+      ? `name a model it takes in ${c.bold(shown(observe.observePaths().config))} ("model": "alias:haiku" asks for the alias), then ${c.bold('npx agentmash observe retry')} tries it at once`
+      : state.hold.access
+        ? `sign in again (run ${c.bold('claude')}), then ${c.bold('npx agentmash observe retry')} tries it at once`
+        : `${c.bold('npx agentmash observe retry')} tries it at once`;
+    ((state.hold.access || state.hold.model) && on ? fail : warn)(`${what}\n    ${c.dim(said)}\n    ${then}`);
+  } else if (state.paused_until > Date.now()) {
+    warn(`the observer is paused until ${until}: it reached a usage limit, and what is spooled waits`);
+  }
+  return problems;
+}
+
+/** A repository that has synced, by its GitHub name; one with no remote by the key its files are kept under. */
+const syncedRepo = (row) => String(row.repo || row.key || 'a repository');
+/** A number the sync files keep, as a count: none where it is missing or not one. */
+const tally = (n) => (Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
+/** Why a sync failed, as its state file kept it: one line, cut, with nothing in it a terminal would act on. */
+const syncErrorText = (error) =>
+  String(error?.what ?? '')
+    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200) || 'no reason was kept';
+
+/** How long a failed sync is doctor's to say: an older one is of an outage that may be long over, and `observe status` still has it. */
+const SYNC_ERROR_FRESH_MS = 60 * 60_000;
+
+/**
+ * doctor's lines on observing, where it is on (sayObserving), and one more
+ * when a sync with a room failed in the last hour; off, nothing is said.
+ * Returns how many problems they make: a failed sync is none, since what was
+ * found waits on the machine and goes with the next one that works.
+ */
+async function doctorObserve() {
+  const observe = await observeLib();
+  if (!observe?.isEnabled()) return 0;
+  ok(`observing is on  ${c.dim(shown(observe.observePaths().config))}`);
+  const problems = sayObserving(observe);
+  const failed = (await syncRows())
+    .filter((row) => Number.isFinite(row.error?.at) && Date.now() - row.error.at < SYNC_ERROR_FRESH_MS)
+    .sort((a, b) => b.error.at - a.error.at);
+  if (failed.length) {
+    warn(
+      `syncing what agents found with the room failed for ${andList(failed.map(syncedRepo))}, ` +
+        `last ${agoMs(failed[0].error.at)}: ${syncErrorText(failed[0].error)}`
+    );
+  }
+  return problems;
+}
+
+/**
+ * doctor's lines on the outbox, where the hooks keep a report a server
+ * outage would have lost (outboxStats in hooks/lib.mjs): nothing while it is
+ * empty, else how many wait and since when, and a warning once it holds over
+ * half of what it may, or its oldest has waited a day. Never a problem: the
+ * reports are kept, and go when the server answers. Hooks from before the
+ * outbox have none, and nothing is said.
+ */
+async function doctorOutbox() {
+  const lib = await hooksLib();
+  let stats = null;
+  try {
+    stats = lib?.outboxStats?.() ?? null;
+  } catch {
+    // it is not to throw; if it does, there is nothing to say of it here
+  }
+  const count = tally(stats?.count);
+  if (count === 0) return;
+  // what it may hold, as the hooks say it; the numbers they were built with where they say none
+  const limits = lib.OUTBOX_LIMITS ?? {};
+  const most = tally(limits.entries) || 2000;
+  const mostBytes = tally(limits.bytes) || 8 * 1024 * 1024;
+  const days = tally(limits.days) || 7;
+  const bytes = tally(stats.bytes);
+  const oldest = agoMs(stats.oldest_at);
+  let where = '';
+  try {
+    where = `  ${c.dim(shown(lib.outboxDir()))}`;
+  } catch {
+    // hooks that do not say where it is
+  }
+  info(`${plural(count, 'report')} from this machine ${count === 1 ? 'waits' : 'wait'} to be sent to the room${oldest ? `, the oldest from ${oldest}` : ''}${where}`);
+  const megabytes = (n) => (n / (1024 * 1024)).toFixed(1);
+  const held = count > most / 2 ? `${count} of ${most} reports` : bytes > mostBytes / 2 ? `${megabytes(bytes)} of ${megabytes(mostBytes)} MB` : '';
+  if (held) warn(`the outbox is over half full (${held}): once it is full, the oldest edits and prompts are dropped first`);
+  if (oldest && Date.now() - stats.oldest_at > DAY_MS) {
+    warn(`the oldest has waited over a day: it goes when the server next answers one of this machine's hooks, and is dropped after ${days} days`);
+  }
+}
+
+function observeOn(observe) {
+  // the observer is the person's own Claude Code, which the worker starts: with none to start, nothing would ever be observed
+  if (!which('claude', agentPlaces().toolPath)) {
+    die(
+      'claude is not on your PATH, and the observer is Claude Code run with no tools (claude -p): nothing was changed — ' +
+        'install Claude Code, then run: npx agentmash observe on'
+    );
+  }
+  // a settings file that could not be written back is found out before anything is copied
+  readClaudeSettings('npx agentmash observe on');
+  copyMachineHookFiles();
+  // a worker that is running holds the scripts it was started with: it goes, and the next event starts one from these
+  const stale = observeWorkerPid(observe);
+  if (stale) {
+    try {
+      process.kill(stale, 'SIGTERM');
+    } catch {
+      // gone between the look and the signal
+    }
+  }
+  const added = installObserveHooks();
+  const was = observe.isEnabled();
+  const config = observe.writeConfig({ enabled: true });
+  const where = c.dim(`${shown(claudeSettingsFile())} · ${plural(Object.keys(observeEntries()).length, 'event')}`);
+  console.log('');
+  if (was && !added) ok(`observing was already on  ${where}`);
+  else ok(`observing is on  ${where}`);
+  if (stale) info(`stopped the observe worker  ${c.dim(`pid ${stale}`)}${c.dim(' · the next one starts from the scripts just copied')}`);
+  // what it costs and where it stays, said where the person turned it on
+  info(
+    `what Claude Code does on this machine is turned into short notes for its next session in the same repository,\n` +
+      `    by claude -p with no tools (${config.model}) on your own Claude sign-in: ${config.daily_cap} runs a day at most. nothing leaves this machine\n` +
+      `    unless a repository's room shares what agents find, which is off until someone turns it on with the room's key.`
+  );
+  console.log(`\n  ${c.bold('restart any Claude Code session that is already open')} so it picks this up.`);
+  console.log(c.dim('  to turn it off: npx agentmash observe off\n'));
+}
+
+function observeOff(observe) {
+  const was = observe.isEnabled();
+  const { removed, invalid, worker } = turnObservingOff(observe);
+  console.log('');
+  if (was || removed) ok(`observing is off${removed ? `  ${c.dim(`its hooks are out of ${shown(claudeSettingsFile())}`)}` : ''}`);
+  else info('observing was not on');
+  if (invalid) {
+    // switched off, its hooks do nothing where they are
+    sayLeftBehind({ invalid: [shown(claudeSettingsFile())] });
+    process.exitCode = 1;
+  }
+  if (worker) info(`stopped the observe worker  ${c.dim(`pid ${worker}`)}`);
+  info(`what was observed is kept: ${c.bold('npx agentmash observe log')} lists a repository's`);
+  console.log('');
+}
+
+/**
+ * `observe status` on sharing: for each repository that has synced with its
+ * room, whether the room shares and since when, whether this machine sends,
+ * how far its log has gone and how much of it waits, how many of the team's
+ * are kept here and when the room was last asked and told, and the last
+ * sync that failed. Then this machine's veto, where it is set, and,
+ * where no room shares yet, the one command that turns it on. `spaced` is
+ * whether the lines before these ended a block of their own.
+ */
+function saySharing(observe, rows, spaced) {
+  const config = observe.readConfig();
+  const sends = sendsObservations(observe);
+  for (const row of rows) {
+    console.log(`\n  ${c.bold(syncedRepo(row))} ${c.dim('· its room')}`);
+    if (row.sharing === true) {
+      const since = agoMs(row.share_since);
+      ok(`the room shares what agents find${since ? `  ${c.dim(`since ${since}`)}` : ''}`);
+      // `sent` is a place in this machine's log, not a count: what was found before the room shared is in the
+      // log too, before that place, and never went. What waits is counted, and under a veto it only waits.
+      const waits = tally(row.pending);
+      const upTo = tally(row.sent) ? `sent up to line ${tally(row.sent)} of its log` : 'nothing sent yet';
+      if (!sends) info(`this machine sends nothing of its own: ${waits} not sent · ${upTo}`);
+      else if (config.enabled !== true) info(`this machine finds nothing to send while observing is off: ${waits} not sent · ${upTo}`);
+      else ok(`this machine sends what it finds: ${waits} waiting to be sent · ${upTo}`);
+      info(`the team's observations kept here: ${tally(row.team)} · pulled ${agoMs(row.pulled_at) ?? 'never'} · pushed ${agoMs(row.pushed_at) ?? 'never'}`);
+    } else if (row.sharing === false) {
+      info(`the room does not share what agents find  ${c.dim(`asked ${agoMs(row.pulled_at) ?? 'never'}`)}`);
+    } else {
+      info('whether the room shares what agents find is not known yet: it has not answered');
+    }
+    if (row.error) warn(`the last sync failed ${agoMs(row.error.at) ?? 'at a time that was not kept'}: ${syncErrorText(row.error)}`);
+  }
+  const shared = rows.some((row) => row.sharing === true);
+  if ((rows.length || spaced) && (!sends || !shared)) console.log('');
+  if (!sends) {
+    // the variable as it is set: 0, false, off and no all keep it home
+    const why = config.share === false ? 'observe local on' : `AGENTMASH_OBSERVE_SHARE=${String(process.env.AGENTMASH_OBSERVE_SHARE ?? '').trim()}`;
+    info(`this machine keeps what it finds to itself ${c.dim(`(${why})`)}, whatever a room shares`);
+  }
+  if (!shared) info(`no room shares what this machine finds — ${c.bold('npx agentmash observe share on')} turns it on for the room of the repository it is run in`);
+}
+
+async function observeStatus(observe) {
+  console.log(`\n${c.bold('agentmash observe')}  ${c.dim('this machine only')}\n`);
+  if (observe.isEnabled()) ok(`observing is on  ${c.dim(shown(observe.observePaths().config))}`);
+  else info(`observing is off — ${c.bold('npx agentmash observe on')} turns it on for this machine`);
+  if (sayObserving(observe, { full: true }) > 0) process.exitCode = 1;
+  // a repository by its GitHub name, as its observations say it; one with no remote by the key its log is filed under
+  const rows = observe
+    .repoKeys()
+    .map((key) => {
+      const all = observe.readObservations(key);
+      return [all[0]?.repo || key, all.length];
+    })
+    .filter(([, count]) => count > 0);
+  if (rows.length === 0) info('no observations on this machine yet');
+  else {
+    console.log(`\n  ${c.bold('observations on this machine')}`);
+    const width = Math.max(...rows.map(([name]) => name.length)) + 2;
+    for (const [name, count] of rows) console.log(`      ${name.padEnd(width)}${count}`);
+  }
+  saySharing(observe, await syncRows(), rows.length > 0);
+  console.log('');
+}
+
+/** How many observations `observe log` lists when -n does not say. */
+const OBSERVE_LOG_COUNT = 20;
+
+async function observeLog(observe, words, args) {
+  let count = OBSERVE_LOG_COUNT;
+  if (words.length) {
+    count = words.length === 2 && words[0] === '-n' && /^\d+$/.test(words[1]) ? Number(words[1]) : 0;
+    if (count < 1) die(OBSERVE_USAGE);
+  }
+  const from = args.repo ? path.resolve(args.repo) : process.cwd();
+  const top = observe.findTop(from);
+  console.log('');
+  if (!top) {
+    bad(`${from} is not inside a git repository — observations are kept by repository: run this in one, or pass --repo <path>`);
+    process.exitCode = 1;
+    console.log('');
+    return;
+  }
+  const name = (await hooksLib())?.repoSlug?.(top) || path.basename(top);
+  const all = observe.readObservations(observe.repoKey(top));
+  if (all.length === 0) {
+    info(
+      `no observations of ${c.bold(name)} on this machine yet` +
+        (observe.isEnabled() ? '' : ` — observing is off: ${c.bold('npx agentmash observe on')}`)
+    );
+    console.log('');
+    return;
+  }
+  const listed = all.slice(0, count);
+  console.log(`  ${c.bold(name)} ${c.dim(`· ${listed.length} of ${plural(all.length, 'observation')}, newest first`)}\n`);
+  for (const obs of listed) {
+    console.log(`  ${c.cyan(obs.id)}  ${c.bold(obs.type)}  ${obs.title}`);
+    const files = Array.isArray(obs.files) && obs.files.length ? obs.files.join(', ') : 'no file';
+    console.log(c.dim(`      ${agoText(new Date(obs.ts).toISOString())} · ${files}`));
+  }
+  console.log(c.dim(`\n  forget one: npx agentmash observe forget <id>${listed.length < all.length ? ' · more: npx agentmash observe log -n <count>' : ''}\n`));
+}
+
+function observeForget(observe, words) {
+  const [id] = words;
+  if (!id || words.length > 1) die('usage: agentmash observe forget <id>   (npx agentmash observe log lists them)');
+  const key = observe.forgetObservation(id);
+  console.log('');
+  if (key) ok(`forgot ${c.cyan(id)}: no session is told it again  ${c.dim(key)}`);
+  else {
+    bad(`no observation ${id} on this machine — ${c.bold('npx agentmash observe log')} lists a repository's, with their ids`);
+    process.exitCode = 1;
+  }
+  console.log('');
+}
+
+/**
+ * `npx agentmash observe share on|off`: the switch of the room this checkout
+ * carries. A room that shares keeps what its team's agents find from then on
+ * and tells it to the others'; off, which every room is until someone turns
+ * it on, it takes and shows none. Set with the room's key, as every setting
+ * of a room is (cmdDiffs), so it is run in a checkout that holds one, and a
+ * checkout with none is told so before any server is asked. It turns nothing
+ * on for any machine: each teammate's own `observe on` does that.
+ */
+async function observeShare(observe, words, args) {
+  const [want] = words;
+  if (words.length !== 1 || (want !== 'on' && want !== 'off')) die('usage: agentmash observe share <on|off>');
+  const repo = args.repo ? path.resolve(args.repo) : findRepoRoot() || process.cwd();
+  const conn = connection(repo);
+  if (!conn.url || !conn.room) {
+    die(
+      'this checkout carries no room key (.claude/agentmash/config.json), and sharing is a room\'s switch, changed with the room\'s key — ' +
+        'run this in a checkout that holds it'
+    );
+  }
+  const res = await api('POST', `${conn.url}/rooms/settings`, {
+    room: conn.room,
+    token: conn.token,
+    body: { share_observations: want === 'on' },
+  });
+  await assertSupported(res, 'share what agents find', conn);
+  if (res.status === 401 || res.status === 403) {
+    // what the server said goes with it: a key rotated away, or one that needs a sign-in beside it, says what to do
+    die(
+      `sharing was not changed: the server turned the request away (HTTP ${[res.status, res.json?.code].filter(Boolean).join(' ')}). ` +
+        'it is the room\'s switch and takes the room\'s key, the one in .claude/agentmash/config.json of a checkout that ran ' +
+        'npx agentmash init; a member\'s sign-in does not change a room\'s settings' +
+        (res.json?.error ? `\n        ${c.dim(res.json.error)}` : '')
+    );
+  }
+  if (!res.ok) die(`could not change settings (HTTP ${res.status}) ${res.json?.error ?? ''}`);
+  // an older server answers with the settings it has, and none is this one
+  if (typeof res.json?.share_observations !== 'boolean') die('this server is too old to share what agents find — upgrade the coordination server first');
+  const on = res.json.share_observations;
+  // since when is the server's to say: a room that shared already keeps the time it was turned on
+  const since = on ? agoMs(Date.parse(res.json.share_since)) : null;
+  console.log(`\n${c.bold('Updated.')} sharing what agents find ${c.cyan(on ? 'on' : 'off')}${since ? `  ${c.dim(`since ${since}`)}` : ''}\n`);
+  if (on) {
+    info('the room keeps what agents find from now on, on machines that observe, and tells it to teammates\' agents in this repository');
+    info(`each teammate still turns observing on for their own machine: ${c.bold('npx agentmash observe on')}\n`);
+  } else {
+    info('the room takes no more of what agents find and shows none; what it holds is kept, and so is what each machine found\n');
+  }
+}
+
+/**
+ * `npx agentmash observe local on|off`: this machine's veto. On, what it
+ * finds stays on it whatever a room shares (`"share": false` in
+ * observe.json, which the worker reads before it sends anything); off, it
+ * goes to a room that shares again. A line in a file: no server is asked.
+ */
+function observeLocal(observe, words) {
+  const [want] = words;
+  if (words.length !== 1 || (want !== 'on' && want !== 'off')) die('usage: agentmash observe local <on|off>');
+  const kept = observe.readConfig().share === false;
+  observe.writeConfig({ share: want === 'off' });
+  const where = c.dim(shown(observe.observePaths().config));
+  console.log('');
+  if (want === 'on') {
+    if (kept) info(`this machine was already keeping what it finds to itself  ${where}`);
+    else ok(`this machine keeps what it finds to itself, whatever a room shares  ${where}`);
+  } else {
+    if (kept) ok(`what this machine finds goes to a room that shares  ${where}`);
+    else info(`what this machine finds was already going to a room that shares  ${where}`);
+    // the file says yes now; the variable, where it says no, still has the last word
+    if (!sendsObservations(observe)) {
+      warn(`AGENTMASH_OBSERVE_SHARE=${String(process.env.AGENTMASH_OBSERVE_SHARE ?? '').trim()} is set here, and keeps it on this machine all the same`);
+    }
+  }
+  console.log('');
+}
+
+/**
+ * `npx agentmash observe retry`: for after the observer's command was mended
+ * (a sign-in, most often). The newest batches in dead/ go back into the
+ * spool, as many as a quarter of a day's batch runs (the rest wait for the
+ * next retry), and a hold on the command ends now, so the next worker tries
+ * it with its first run and not at the end of the hold. A usage limit's
+ * pause is left as it is: that one is the account's, and trying sooner mends
+ * nothing. Files written and moved, and no server asked; the worker's state
+ * is not written from here, but asked of (observe.askRetry).
+ */
+function observeRetry(observe) {
+  console.log('');
+  if (typeof observe.retryDead !== 'function') {
+    info('the observe scripts beside this command have nothing to retry with');
+    console.log('');
+    return;
+  }
+  const back = observe.retryDead();
+  const left = observe.deadCount();
+  const held = Boolean(observe.readState().hold);
+  if (held) {
+    if (typeof observe.askRetry === 'function') observe.askRetry();
+    else {
+      observe.updateState((s) => {
+        s.paused_until = 0;
+      });
+    }
+  }
+  if (back) ok(`${batches(back)} the observer failed on ${back === 1 ? 'is' : 'are'} back in the spool, to be observed again${left ? `, the newest; ${left} more wait${left === 1 ? 's' : ''} for the next retry` : ''}`);
+  if (held) ok('the hold on the observer is over: its next run tries the command');
+  if (!back && !held) info('nothing to retry: no dead batches, and the observer is not held');
+  else if (observe.isEnabled()) info('a worker starts with the next thing an agent does');
+  else info(`observing is off: ${c.bold('npx agentmash observe on')} turns it on`);
+  console.log('');
+}
+
+const OBSERVE_USAGE = 'usage: agentmash observe <on|off|status|retry|log [-n <count>]|forget <id>|share <on|off>|local <on|off>>';
+
+/**
+ * `npx agentmash observe`: turn observing on or off for this machine, say how
+ * it is doing, try again what the observer failed on, list what was observed
+ * in the repository it is run in, forget one observation, turn sharing on or
+ * off for the room this checkout carries, or keep this machine's own to
+ * itself. With no word after it, it is `status`.
+ */
+async function cmdObserve(args) {
+  const [action = 'status', ...words] = args._;
+  const actions = {
+    on: observeOn,
+    off: observeOff,
+    status: observeStatus,
+    retry: observeRetry,
+    log: observeLog,
+    forget: observeForget,
+    share: observeShare,
+    local: observeLocal,
+  };
+  if (!Object.hasOwn(actions, action)) die(OBSERVE_USAGE);
+  // log, forget, share and local read their own words; a word after any other is refused before anything is done
+  if (words.length && !['log', 'forget', 'share', 'local'].includes(action)) die(OBSERVE_USAGE);
+  const observe = (await observeLib()) ?? die('could not load the observe scripts (broken package?)');
+  await actions[action](observe, words, args);
 }
 
 // ── one room per repository ────────────────────────────────────────────────
@@ -5201,6 +5955,13 @@ ${c.bold('agentmash')} — let your team see each other's work on one repository
                                  ${c.dim('(--all: every other machine signed in as you too)')}
   ${c.bold('npx agentmash tools')} [add|remove <id>]  the coding agents on this machine:
                                  ${agentList}
+  ${c.bold('npx agentmash observe')} <on|off|status|log|forget <id>>
+                                 on this machine only, and off until turned on: what Claude Code finds
+                                 out as it works is kept as short notes, and told to its next session in
+                                 the same repository ${c.dim('(log -n <count>: how many)')}
+  ${c.bold('npx agentmash observe share')} <on|off>  whether this repo's room keeps what its team's agents find and
+                                 tells it to the others' ${c.dim('(off by default; takes the room key)')}
+  ${c.bold('npx agentmash observe local')} <on|off>  on: this machine keeps what it finds to itself, whatever the room shares
   ${c.bold('npx agentmash token')} <create|list|revoke>  personal API tokens for /api/v1, made with this machine's
                                  sign-in ${c.dim('(npx agentmash token: its options)')}
   ${c.bold('npx agentmash ask')} teammate "text"   send a teammate in this repo's room a request for their agent:
@@ -5379,7 +6140,7 @@ function editDistance(a, b) {
 
 /**
  * How many words each command takes after its name. A command not listed
- * reads its own: crew (and team), tools, mcp and those in OWN_ARGS. A word a command
+ * reads its own: crew (and team), tools, observe, mcp and those in OWN_ARGS. A word a command
  * does not take used to be dropped, so `delete events --yes`, meant as a
  * purge, deleted the whole room. Now it is refused before anything is done.
  */
@@ -5576,6 +6337,7 @@ const commands = {
   team: cmdTeamRenamed,
   mcp: cmdMcp,
   tools: cmdTools,
+  observe: cmdObserve,
   token: () => import('./token.mjs').then((m) => m.cmdToken(rest)),
   hook: () => import('./hook.mjs').then((m) => m.cmdHook(rest)),
   ask: () => import('./inbox.mjs').then((m) => m.cmdAsk(rest, { roomOf: inboxRoom })),

@@ -19,7 +19,12 @@ export const UNKNOWN_KEY = 'mash_unknownunknownunknown';
  * server with GitHub sign-in (/api/config says oauth), whose new rooms come
  * with their ref; without it, /api/config is not there, as on a server too old
  * to have one, and a new room has no ref. `repo`, when given, is the
- * repository /rooms/self says the room is connected to.
+ * repository /rooms/self says the room is connected to. `settingsRefusal`,
+ * when given, is what POST /rooms/settings answers in place of changing
+ * anything, { status, body }: a server turns away a request to change a
+ * room's settings that does not come with the room's key. `supportsSharing`
+ * false is a server from before a room could share what agents found: asked
+ * to turn that on, it answers with the settings it has, and none is that one.
  */
 export function startMockServer({
   roomExists = true,
@@ -31,6 +36,8 @@ export function startMockServer({
   supportsSignIn = true,
   signsIn = false,
   repo = null,
+  settingsRefusal = null,
+  supportsSharing = true,
 } = {}) {
   const requests = [];
   // what POST /rooms/settings set, as /rooms/self then says it
@@ -40,7 +47,14 @@ export function startMockServer({
     req.on('data', (c) => (body += c));
     req.on('end', () => {
       const url = new URL(req.url, 'http://localhost');
-      requests.push({ method: req.method, path: url.pathname, query: Object.fromEntries(url.searchParams), body: body ? JSON.parse(body) : null });
+      requests.push({
+        method: req.method,
+        path: url.pathname,
+        query: Object.fromEntries(url.searchParams),
+        body: body ? JSON.parse(body) : null,
+        // the room key the request came with, in its header
+        room: req.headers['x-agentmash-room'],
+      });
       const send = (code, payload) => {
         res.writeHead(code, { 'content-type': 'application/json' });
         res.end(JSON.stringify(payload));
@@ -106,7 +120,14 @@ export function startMockServer({
         return send(answer.status, answer.body);
       }
       if (url.pathname === '/rooms/settings' && req.method === 'POST') {
-        const { sign_in_required, ...rest } = JSON.parse(body || '{}');
+        if (settingsRefusal) return send(settingsRefusal.status, settingsRefusal.body);
+        const { sign_in_required, share_observations, ...rest } = JSON.parse(body || '{}');
+        if (supportsSharing && share_observations !== undefined) {
+          // since when: from the switch that turned it on, unmoved by "on" said to a room that
+          // shares already, and kept when it is turned off, as the server keeps it (updateRoom)
+          if (share_observations && settings.share_observations !== true) settings.share_since = new Date().toISOString();
+          settings.share_observations = share_observations;
+        }
         Object.assign(settings, rest, supportsSignIn && sign_in_required !== undefined ? { sign_in_required } : {});
         return send(200, { ok: true, token_mode: 'off', ...(supportsSignIn ? { sign_in_required: false } : {}), ...settings });
       }

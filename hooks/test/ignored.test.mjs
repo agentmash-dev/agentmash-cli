@@ -219,3 +219,130 @@ test('a file git ignores is found ignored whatever its name holds', async () => 
   const ignored = [...(await lib.gitIgnored(asked, { sessionId: session(), budgetMs: 5000 }))].map((t) => t.rel);
   assert.deepEqual(ignored.sort(), [...names].sort());
 });
+
+// A file in a checkout git gave no answer about (out of time, no git to run,
+// a repository git cannot read) may be one it ignores, a .env as much as
+// anything: its edit is still reported and warned about by its name and line
+// counts, but nothing read from its text leaves the machine with it.
+
+/** PATH set to a folder with no git in it, for as long as `fn` runs, in this process. */
+async function withoutGit(fn) {
+  const kept = process.env.PATH;
+  process.env.PATH = fs.realpathSync(tempDir('agentmash-ignored-nogit-'));
+  try {
+    return await fn();
+  } finally {
+    process.env.PATH = kept;
+  }
+}
+
+test('a file git gave no answer about is unanswered, not taken as one git does not ignore', async () => {
+  const repo = repository();
+  const at = (rel) => ({ rel, top: repo });
+  const rels = (set) => [...set].map((t) => t.rel).sort();
+  const files = () => ['.env', 'scratch/notes.ts', 'src/models/user.ts', 'dist/vendor.js'].map(at);
+  const all = ['.env', 'dist/vendor.js', 'scratch/notes.ts', 'src/models/user.ts'];
+
+  // no time to ask git: nothing is known either way, and gitIgnored, which
+  // only leaves out what git ignores, leaves out nothing
+  const sessionId = session();
+  const rushed = await lib.gitIgnoreAnswers(files(), { sessionId, budgetMs: 0 });
+  assert.deepEqual([rels(rushed.ignored), rels(rushed.unanswered)], [[], all]);
+  assert.deepEqual(rels(await lib.gitIgnored(files(), { sessionId, budgetMs: 0 })), []);
+
+  // given the time, every one is answered, and kept for the session
+  const asked = await lib.gitIgnoreAnswers(files(), { sessionId });
+  assert.deepEqual([rels(asked.ignored), rels(asked.unanswered)], [['.env', 'scratch/notes.ts'], []]);
+  const kept = await lib.gitIgnoreAnswers(files(), { sessionId, budgetMs: 0 });
+  assert.deepEqual([rels(kept.ignored), rels(kept.unanswered)], [['.env', 'scratch/notes.ts'], []], 'from the session');
+
+  // no git to run: unanswered, and asked again once there is one
+  const fresh = session();
+  const missing = await withoutGit(() => lib.gitIgnoreAnswers(files(), { sessionId: fresh }));
+  assert.deepEqual([rels(missing.ignored), rels(missing.unanswered)], [[], all]);
+  const found = await lib.gitIgnoreAnswers(files(), { sessionId: fresh });
+  assert.deepEqual([rels(found.ignored), rels(found.unanswered)], [['.env', 'scratch/notes.ts'], []]);
+
+  // in no repository at all, nothing is ignored and nothing is unanswered
+  const elsewhere = fs.realpathSync(tempDir('agentmash-ignored-plain-'));
+  const plain = await lib.gitIgnoreAnswers([{ rel: '.env', top: elsewhere }], { sessionId: session() });
+  assert.deepEqual([rels(plain.ignored), rels(plain.unanswered)], [[], []]);
+});
+
+test('a repository git refuses to read stays unanswered for the session', async () => {
+  const repo = repository();
+  const files = () => ['.env', 'src/models/user.ts'].map((rel) => ({ rel, top: repo }));
+  const rels = (set) => [...set].map((t) => t.rel).sort();
+  const sessionId = session();
+  // as if another account owned it: git exits 128 and says nothing about any file
+  process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER = '1';
+  try {
+    const refused = await lib.gitIgnoreAnswers(files(), { sessionId });
+    assert.deepEqual([rels(refused.ignored), rels(refused.unanswered)], [[], ['.env', 'src/models/user.ts']]);
+  } finally {
+    delete process.env.GIT_TEST_ASSUME_DIFFERENT_OWNER;
+  }
+  // git will not say next time either, so it is not asked again this session
+  const again = await lib.gitIgnoreAnswers(files(), { sessionId });
+  assert.deepEqual([rels(again.ignored), rels(again.unanswered)], [[], ['.env', 'src/models/user.ts']]);
+  const other = await lib.gitIgnoreAnswers(files(), { sessionId: session() });
+  assert.deepEqual([rels(other.ignored), rels(other.unanswered)], [['.env'], []], 'another session asks for itself');
+});
+
+test("a change's summary can leave out the names it reads from the text", () => {
+  const write = { content: 'export const API_URL = 1;' };
+  const edit = { old_string: 'export const A = 1;', new_string: 'export const API_URL = 1;\nexport const B = 2;' };
+  assert.equal(lib.summarizeChange('Write', write), 'wrote 1 line, defining API_URL');
+  assert.equal(lib.summarizeChange('Write', write, { names: false }), 'wrote 1 line');
+  assert.equal(lib.summarizeChange('Edit', edit), '+2/-1 lines, touching API_URL, B');
+  assert.equal(lib.summarizeChange('Edit', edit, { names: false }), '+2/-1 lines');
+});
+
+test('with no git to ask, an edit is reported and asked about by its name alone: no diff, symbols, imports or names', async () => {
+  const room = await startServer({ holders: [], streamDiffs: true });
+  const repo = repository();
+  const rel = 'src/models/user.ts';
+  writeFile(repo, rel, "import { Team } from './team';\nexport interface User { id: string }\n");
+  const call = (sessionId, event) => ({
+    session_id: sessionId,
+    cwd: repo,
+    hook_event_name: event,
+    tool_name: 'Edit',
+    tool_input: {
+      file_path: path.join(repo, ...rel.split('/')),
+      old_string: 'export interface User { id: string }',
+      new_string: 'export interface User { id: string }\nexport const API_URL = 1;',
+    },
+  });
+  const noGit = { PATH: fs.realpathSync(tempDir('agentmash-ignored-nogit-')) };
+  try {
+    // git there: the room hears what the edit is about, and its text on the room's yes
+    const seen = session();
+    await runHook('pre_tool_use.mjs', call(seen, 'PreToolUse'), env(repo, room.port));
+    await runHook('post_tool_use.mjs', call(seen, 'PostToolUse'), env(repo, room.port));
+    const told = room.requests.filter((r) => r.path === '/check');
+    const posted = room.requests.filter((r) => r.path === '/events');
+    assert.equal(told.length, 1);
+    assert.ok(told[0].query.symbols, 'symbols asked about with git there');
+    assert.equal(posted.length, 1);
+    assert.match(posted[0].body.change_summary, /API_URL/);
+    assert.ok(posted[0].body.diff, 'the text went, on the room’s yes');
+
+    // no git: the same edit, by its name and counts, and nothing of its text
+    const blind = session();
+    const pre = await runHook('pre_tool_use.mjs', call(blind, 'PreToolUse'), { ...env(repo, room.port), ...noGit });
+    const post = await runHook('post_tool_use.mjs', call(blind, 'PostToolUse'), { ...env(repo, room.port), ...noGit });
+    assert.deepEqual([pre.code, post.code, post.stdout, post.stderr], [0, 0, '', '']);
+    const check = room.requests.filter((r) => r.path === '/check')[1];
+    const event = room.requests.filter((r) => r.path === '/events')[1];
+    assert.equal(check.query.file_path, rel);
+    assert.equal(check.query.symbols, undefined);
+    assert.equal(check.query.imports, undefined);
+    assert.equal(event.body.file_path, rel);
+    assert.equal(event.body.change_summary, '+2/-1 lines');
+    assert.equal(event.body.symbols, null);
+    assert.equal(event.body.diff, undefined);
+  } finally {
+    await room.close();
+  }
+});

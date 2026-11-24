@@ -8,7 +8,9 @@
 //
 // Invoked in the background by .git/hooks/post-commit, which has already
 // returned control to git. Same contract as every other client: hard timeouts,
-// no retries, exit 0 whatever happens, never a word on stdout.
+// no retry in its own time (a report the server did not take is kept by
+// lib.mjs for a later hook to send), exit 0 whatever happens, never a word on
+// stdout.
 //
 //   node git_post_commit.mjs [repo-root] [commit-ish] [ref]
 //
@@ -225,22 +227,31 @@ async function main() {
 
   // With the credentials the hooks send: the room's key, and the developer
   // token this machine holds for the room, which a room that requires them
-  // will not take an event without.
-  const post = (body) =>
-    httpJson('POST', `${config.url}/events`, {
+  // will not take an event without. Through the hooks' own path
+  // (lib.reportEvent), which gives each event an id, logs one that does not
+  // arrive and keeps one the server may yet take, to be sent later under that
+  // id; a lib.mjs from before that path posts it the way this client always
+  // did, once, and forgets it.
+  const post = (body) => {
+    const event = { developer, session_id: sessionId, git_branch: branch, task_hint: subject, timestamp, ...body };
+    if (lib.reportEvent) return lib.reportEvent(config, event, { hook: 'git_post_commit', project: repo });
+    return httpJson('POST', `${config.url}/events`, {
       room: config.room,
       token: config.token,
       user: config.user,
       dev: config.dev,
       timeoutMs: config.reportTimeoutMs,
-      body: { developer, session_id: sessionId, git_branch: branch, task_hint: subject, timestamp, ...body },
+      body: event,
     });
+  };
 
   // Noted before anything is sent, not after: the hooks report a commit made
   // in a session from the reflog (commitCatchUp in lib.mjs) and leave alone
   // one this list has, so a commit noted only once it was posted could be
-  // reported by both. A post that then fails costs the commit its report,
-  // which is what a timeout here always cost.
+  // reported by both. That holds for a post that fails, too: where the lib
+  // keeps it, the report is waiting on this machine and arrives later, so the
+  // commit is still this client's and nobody else's to report; beside a lib
+  // from before, it costs the commit its report, as a timeout here always did.
   rememberReported(seen, sha, tree);
 
   const editDeadline = Date.now() + TOTAL_BUDGET_MS - SESSION_END_RESERVE_MS;

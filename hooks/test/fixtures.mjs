@@ -7,7 +7,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { SLOWNESS, timed, within } from '../../tools/test-timing.mjs';
 import { tempDir } from './tmp.mjs';
@@ -67,10 +67,11 @@ export const HOLDER = {
 
 /**
  * A room on a port of its own that records every request: /check answers
- * with `holders` (and `claims`) for the file asked about, or, with `hang`,
- * never; /events answers after `eventsDelayMs`.
+ * with `holders` (and `claims`) for the file asked about, and with
+ * `streamDiffs` that edits may carry their text, or, with `hang`, never;
+ * /events answers after `eventsDelayMs`.
  */
-export function startServer({ holders = [HOLDER], claims = [], eventsDelayMs = 0, hang = false } = {}) {
+export function startServer({ holders = [HOLDER], claims = [], eventsDelayMs = 0, hang = false, streamDiffs = false } = {}) {
   const requests = [];
   const hung = new Set();
   const server = http.createServer((req, res) => {
@@ -104,6 +105,7 @@ export function startServer({ holders = [HOLDER], claims = [], eventsDelayMs = 0
           conflict: true,
           holders: holders.filter((h) => h.file_path === file),
           claims: claims.filter((c) => c.file_path === file),
+          ...(streamDiffs ? { stream_diffs: true } : {}),
         });
       }
       if (url.pathname === '/team') return send(200, { developers: [] });
@@ -130,6 +132,22 @@ export function startServer({ holders = [HOLDER], claims = [], eventsDelayMs = 0
 }
 
 /**
+ * `dir` made a git repository on `branch`, with `origin` its remote when
+ * given: one git can answer about, as a real checkout is (a .git folder of a
+ * HEAD and a config alone is no repository to git, and a file in it gets no
+ * answer, see gitIgnoreAnswers in lib.mjs). No global excludes file of
+ * whoever runs the tests is read in it.
+ */
+export function gitRepository(dir, branch, origin = null) {
+  const git = (...args) => execFileSync('git', args, { cwd: dir, env: baseEnv, stdio: 'ignore' });
+  git('init', '-q');
+  git('symbolic-ref', 'HEAD', `refs/heads/${branch}`);
+  if (origin) git('config', 'remote.origin.url', origin);
+  git('config', 'core.excludesFile', path.join(dir, '.git', 'no-excludes'));
+  return dir;
+}
+
+/**
  * A checkout of acme/app on feat/login, and a home: signed in to `port` with
  * `npx agentmash login`, or, with `committed`, a checkout that carries a room
  * of its own (`npx agentmash init`) and a home that never signed in.
@@ -137,9 +155,7 @@ export function startServer({ holders = [HOLDER], claims = [], eventsDelayMs = 0
 export function machine(port, { committed = false } = {}) {
   const home = tempDir('agentmash-agents-home-');
   const project = fs.realpathSync(tempDir('agentmash-agents-checkout-'));
-  fs.mkdirSync(path.join(project, '.git'));
-  fs.writeFileSync(path.join(project, '.git', 'HEAD'), 'ref: refs/heads/feat/login\n');
-  fs.writeFileSync(path.join(project, '.git', 'config'), '[remote "origin"]\n\turl = git@github.com:acme/app.git\n');
+  gitRepository(project, 'feat/login', 'git@github.com:acme/app.git');
   fs.mkdirSync(path.join(project, 'src', 'models'), { recursive: true });
   fs.writeFileSync(path.join(project, 'src', 'models', 'user.ts'), 'export interface User { id: string }\n');
   if (committed) {

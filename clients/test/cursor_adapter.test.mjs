@@ -100,9 +100,11 @@ function makeWorkspace(url, extra = {}) {
     path.join(dir, '.claude', 'agentmash', 'config.json'),
     JSON.stringify({ url, room: ROOM, label: 'test', ...extra })
   );
-  // a branch to report, without needing a real repo
-  fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.git', 'HEAD'), 'ref: refs/heads/feat/soft-delete\n');
+  // a branch to report, in a repository git answers about (see gitRepository in hooks/test/fixtures.mjs)
+  const git = (...args) => execFileSync('git', args, { cwd: dir, env: baseEnv, stdio: 'ignore' });
+  git('init', '-q');
+  git('symbolic-ref', 'HEAD', 'refs/heads/feat/soft-delete');
+  git('config', 'core.excludesFile', path.join(dir, '.git', 'no-excludes'));
   return dir;
 }
 
@@ -408,7 +410,10 @@ test('the adapter exits 0 and silently when the server is down', async () => {
   await mock.close();
   const root = makeWorkspace(deadUrl);
 
-  const result = await run(afterFileEdit(root, freshConversation()));
+  // A home of its own: the report is kept to send later (the outbox in
+  // hooks/lib.mjs), and in the home the other tests share it would go to a
+  // later test's server whenever that server was given the same port.
+  const result = await run(afterFileEdit(root, freshConversation()), { AGENTMASH_HOME: tempDir('agentmash-cursor-down-home-') });
   assert.equal(result.code, 0);
   assert.equal(result.stdout, '');
   assert.equal(result.stderr, '');
@@ -419,7 +424,8 @@ test('the adapter abandons a hung server within its budget', async () => {
   const mock = await startMockServer({ delayMs: 30_000 });
   const root = makeWorkspace(mock.url);
   try {
-    const result = await run(afterFileEdit(root, freshConversation()));
+    // a home of its own, as above: this report is kept too
+    const result = await run(afterFileEdit(root, freshConversation()), { AGENTMASH_HOME: tempDir('agentmash-cursor-down-home-') });
     assert.equal(result.code, 0);
     assert.equal(result.stdout, '');
     assert.ok(result.elapsed < 6000, `waited ${result.elapsed}ms on a hung server`);
@@ -770,6 +776,34 @@ test('an edit to a file git ignores, or one in .git/, is not reported to the roo
       assert.deepEqual([result.code, result.stdout, result.stderr], [0, '', ''], rel);
     }
     assert.deepEqual(mock.requests.map((r) => r.body?.file_path), ['src/models/user.ts']);
+  } finally {
+    await mock.close();
+  }
+});
+
+// A file git gave no answer about may be one it ignores: the room hears of
+// it by its name and line counts alone, as the Claude Code hooks tell it.
+test('with no git to ask, Cursor asks and reports by the name alone: no symbols, imports or names', async () => {
+  const mock = await startMockServer({ check: { conflict: false, holders: [] } });
+  const root = ignoringWorkspace(mock.url);
+  const home = tempDir('agentmash-cursor-home-');
+  const noGit = { PATH: fs.realpathSync(tempDir('agentmash-cursor-nogit-')) };
+  try {
+    // git there: the symbols go with the question, the names with the report
+    await run(preToolUse(root, freshConversation()), userLevel(home, gitEnv), ['--global']);
+    await run(afterFileEdit(root, freshConversation()), { AGENTMASH_DEV: 'alice@example.com', ...gitEnv });
+    assert.equal(mock.requests.filter((r) => r.path === '/check')[0].query.symbols, 'User');
+    assert.match(mock.requests.filter((r) => r.body?.file_path)[0].body.change_summary, /touching SOFT_DELETE/);
+
+    // no git: the same, by the name and counts alone
+    answerOf(await run(preToolUse(root, freshConversation()), userLevel(home, { ...gitEnv, ...noGit }), ['--global']));
+    const after = await run(afterFileEdit(root, freshConversation()), { AGENTMASH_DEV: 'alice@example.com', ...gitEnv, ...noGit });
+    assert.deepEqual([after.code, after.stdout, after.stderr], [0, '', '']);
+    const check = mock.requests.filter((r) => r.path === '/check')[1];
+    assert.deepEqual([check.query.file_path, check.query.symbols, check.query.imports], ['src/models/user.ts', undefined, undefined]);
+    const event = mock.requests.filter((r) => r.body?.file_path)[1].body;
+    assert.equal(event.file_path, 'src/models/user.ts');
+    assert.match(event.change_summary, /^\+\d+\/-\d+ lines$/);
   } finally {
     await mock.close();
   }

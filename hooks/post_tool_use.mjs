@@ -316,8 +316,15 @@ async function main() {
   if (config.disabled || !config.room) return;
   // A file git ignores (.env, a scratch folder) is never merged: no teammate
   // can collide with what is in it, and it is nobody else's business. A Bash
-  // command's changes to one were never reported either (see gitIgnored).
-  if ((await lib.gitIgnored?.([where], { sessionId }))?.has(where)) return;
+  // command's changes to one were never reported either (see gitIgnored). One
+  // git gave no answer about may be such a file: it is reported by its name
+  // and line counts, and nothing read from its text goes with it (see
+  // gitIgnoreAnswers).
+  const answers = lib.gitIgnoreAnswers
+    ? await lib.gitIgnoreAnswers([where], { sessionId })
+    : { ignored: (await lib.gitIgnored?.([where], { sessionId })) ?? new Set(), unanswered: new Set() };
+  if (answers.ignored.has(where)) return;
+  const blind = answers.unanswered.has(where);
   holdExitGuard(config.reportTimeoutMs);
 
   const cache = readSessionCache(sessionId);
@@ -338,11 +345,11 @@ async function main() {
   if (override) writeSessionCache(sessionId, cache);
   // Another agent's edit, read as the Claude Code edit it is (see asClaudeEdit).
   const edit = lib.asClaudeEdit?.(input?.tool_name, toolInput) ?? { tool: input?.tool_name, input: toolInput };
-  const summary = composeSummary(summarizeChange(edit.tool, edit.input), override);
+  const summary = composeSummary(summarizeChange(edit.tool, edit.input, { names: !blind }), override);
   // The changed text, only when this developer allows it and the room said
   // yes to this very edit, before it (see passDiff in lib.mjs). Absent
   // otherwise, and an older vendored lib.mjs cannot send it at all.
-  const diff = config.streamDiffs ? (lib.diffForEdit?.(edit.tool, edit.input) ?? null) : null;
+  const diff = config.streamDiffs && !blind ? (lib.diffForEdit?.(edit.tool, edit.input) ?? null) : null;
   const diffPassed = Boolean(diff && lib.takeDiffPass?.(sessionId, file, diff));
 
   await report(
@@ -368,7 +375,7 @@ async function main() {
       change_summary: summary || null,
       // read from the file where it is, not where the agent's path would put
       // it from this process's folder: Devin's are relative to its cwd
-      symbols: lib.symbolsForEdit?.(path.join(where.top, file), edit.tool, edit.input) ?? null,
+      symbols: blind ? null : (lib.symbolsForEdit?.(path.join(where.top, file), edit.tool, edit.input) ?? null),
       // Which crew agent made the edit, when a crew agent did: a catalog
       // name and nothing else. Any other agent's name, its id (but for the
       // opaque hash of it beside every report, subagentRef) and its prompt

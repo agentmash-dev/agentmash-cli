@@ -469,6 +469,7 @@ const EVERY_TOOL = {
   list_claims: {},
   get_collisions: {},
   mark_resolved: { file_path: 'src/models/user.ts', outcome: 'merged' },
+  recall_observations: { file: 'src/models/user.ts', about: 'soft deletes' },
   check_inbox: {},
   reply_to_teammate: { message_id: `msg_${'a'.repeat(22)}`, text: 'thanks, on it' },
   tasks_list: {},

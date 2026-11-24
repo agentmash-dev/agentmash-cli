@@ -52,7 +52,16 @@ const filesIn = (dir) => fs.readdirSync(dir).filter((f) => f.endsWith('.mjs')).s
 const AGENT_FILES = filesIn(path.join(CLI_DIR, 'agents'));
 // Beside the hooks a repository install commits, what only a login copies to
 // ~/.agentmash/hooks: the generic hook, and the dialects it answers in.
-const MACHINE_HOOK_FILES = ['agent_hook.mjs', ...filesIn(path.join(REPO, 'hooks', 'dialects')).map((f) => `dialects/${f}`)];
+const MACHINE_HOOK_FILES = [
+  'agent_hook.mjs',
+  // observing: what its scripts share, the two hooks, the worker, and what it syncs with a room
+  'observe.mjs',
+  'observe_spool.mjs',
+  'observe_recall.mjs',
+  'observe_worker.mjs',
+  'observe_sync.mjs',
+  ...filesIn(path.join(REPO, 'hooks', 'dialects')).map((f) => `dialects/${f}`),
+];
 const EXPECTED_FILES = [
   'LICENSE',
   'README.md',

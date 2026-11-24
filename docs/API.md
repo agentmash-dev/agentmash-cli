@@ -142,6 +142,15 @@ server; `openapi.json` lists them.
 read before it edits the file, worded by the same code the hooks use, so your tool says what
 Claude Code is told, and says it differently only when the hooks do.
 
+With `findings_for=<session id>` (the id your tool reports that session's edits with) in a room
+that keeps what agents found, the answer also has `findings`: at most three observations
+teammates' agents made that this session has not been told, about this file first, each with
+`about` (the file it is told for) and `blob` (the observation's git blob id of that file). The
+room records them as told to that session and does not answer them to it again, so ask only if
+you show them, and show them as `PROTOCOL.md` §15 says: as quotes with their author, marked as
+information and not as instructions. `advice` does not include them. A caller the room cannot
+name gets `"findings": []`.
+
 ```bash
 curl -s "https://agentmash.dev/api/v1/check?file_path=src/models/user.ts&developer=bob&branch=main" \
   -H "Authorization: Bearer $AGENTMASH_ROOM"
@@ -203,18 +212,28 @@ and on any failure, nothing at all.
 
 `GET /api/v1/live` upgrades to a WebSocket (a plain GET answers 426 `upgrade_required`); `GET /api/v1/stream` sends the same frames as
 `text/event-stream`, for a client that would rather read lines. Each frame is a JSON object
-with a `type`: `hello`, `event` (with the changed text when the room streams diffs), `claim`,
-`claim_released`, `claims_released` and `resolution`; ignore a type you do not know.
+with a `type`: `hello`, `event` (with the changed text when the room streams diffs),
+`observation` (in a room that keeps what agents found), `claim`, `claim_released`,
+`claims_released` and `resolution`; ignore a type you do not know. An `event` or `observation`
+frame carries `seq`, its number in the room's log, and `hello` carries the room's newest.
 
-On the stream, each frame is `event: <type>` and `data: <the same JSON>`, with `id:` on event
-frames. It opens with `retry: 5000`, sends a `: keepalive` comment every 25 seconds, and ends
+On the stream, each frame is `event: <type>` and `data: <the same JSON>`, with `id: <seq>` on
+event and observation frames. It opens with `retry: 5000`, sends a `: keepalive` comment every 25 seconds, and ends
 with an `event: close` frame carrying the code: 4001 when the credential no longer opens the
 room (stop reconnecting), 4003 when the room was deleted, 1001 when the server is restarting.
 A credential holds five streams at once and a server a thousand; past that, 429
 `stream_limit`. A room holds 200 WebSockets at once and an address 100; past that, the socket
 closes with 1013 (try again later). A WebSocket that stops reading is closed once a mebibyte of
-frames waits for it. There is no replay from `Last-Event-ID` yet: a client that reconnects reads
-`GET /api/v1/events` for what it missed.
+frames waits for it.
+
+A reader that dropped comes back with the number of the last frame it read: `?after=<seq>` on
+the WebSocket, and on the stream the `Last-Event-ID` header, which an EventSource sends by
+itself, or `?after=<seq>` (the header wins). `hello` then says `"replay": "ok"` and the event
+and observation frames it missed follow, once each and in order, before anything live; diffs
+and claims are not replayed. More than 1,000 frames behind, more than about 750 KB of them, or
+behind what retention has since removed, `hello` says `"replay": "reset"` and nothing is
+replayed: read the room again. `GET /api/v1/events?after=<seq>` is the same catching up
+without a socket: the events after that number, oldest first, with `head` and `next_after`.
 
 ### A session shared live (the lobby)
 
@@ -440,7 +459,7 @@ named; every answer is `no-store`.
 | Method and path | Credential | What it does |
 | --- | --- | --- |
 | `GET /api/v1/lobby/spaces` | person | `{ "you", "spaces": [Space] }`: the spaces you are in and open a room of, newest `active_at` first, 50 at most |
-| `GET /api/v1/lobby/spaces/repos` | person | `{ "you", "repos": [{ "repo", "room_ref", "label", "you_open", "you_can_push", "by_invite" }] }`: the rooms you open, then the repositories you can push to with no room yet (`room_ref` null) |
+| `GET /api/v1/lobby/spaces/repos` | person | `{ "you", "repos": [{ "repo", "room_ref", "label", "you_open", "you_can_push", "by_invite", "in_space", "space_id" }] }`: the rooms you open, then the repositories you can push to with no room yet (`room_ref` null); `in_space` when its room is in a space already, `space_id` that space's id when you are in it (null otherwise) |
 | `GET /api/v1/lobby/spaces/{id}` | person | `{ "space" }`: one space, as you see it |
 | `POST /api/v1/lobby/spaces` | machine | `{ "name", "description", "rooms": ["rm_…"], "members": ["login"] }`: make one, the first room home. 201 `{ "space", "invites" }` |
 | `PATCH /api/v1/lobby/spaces/{id}` | machine | `{ "name" }`, `{ "description" }` or both: any member renames it. `{ "space" }` |
@@ -491,10 +510,14 @@ can't see; a description 280 at most, line breaks allowed, no other control char
 person can't see: 400 `invalid_space`, whose `error` says what is wrong in words to show as they
 are (and so is a home that isn't one of its rooms). A room you add is one you open (403
 `room_not_open`, for one that isn't there too), connected to a repository (409
-`room_not_connected`). 8 rooms and 200 people a space (409 `space_full`), and one room at least
-(409 `last_room`). 50 spaces a person sees (is in and opens a room of: one of rooms they don't
-open costs nothing, so nobody fills someone's list with spaces they can't find or leave) and 20
-made a person an hour, deleted ones counted (429 `space_limit`, with `Retry-After` for the hour's).
+`room_not_connected`), and in no other space: a room, and so its repository, is in one space at
+most (409 `room_in_space`, whose `error` names that space only to someone in it: "acme/app is in
+Checkout already: take it out there first", or "acme/app is in another space already"; a room put
+in two before the rule stays in both). 8 rooms and 200 people a space (409 `space_full`), and one
+room at least (409 `last_room`). 50 spaces a person sees (is in and opens a room of: one of rooms
+they don't open costs nothing, so nobody fills someone's list with spaces they can't find or leave)
+and 20 made a person an hour, deleted ones counted (429 `space_limit`, with `Retry-After` for the
+hour's).
 
 **Adding people.** A login named on `POST /api/v1/lobby/spaces`, or added after, is a member at
 once, whatever its invites say, and is invited to each room of the space they don't open, each
@@ -806,7 +829,7 @@ your request, which names a route and never its address, a header or a body.
 | 402 | From a server that enforces plans, `upgrade_url` saying where to upgrade: `seat_limit` (the plan has no seat left), `agent_hours_limit` (the free plan's agent-hours for the month are used and this is a new session; `resets_at` says when they come back), `repo_in_free_team` (the repository is connected to another free team's room) or `free_plan_sign_in` (on free, nobody GitHub vouched for sent it) |
 | 403 | `insufficient_scope`, `token_repo_forbidden`, `machine_token_required`, `person_required`, `not_invited`, `cannot_invite`, `cannot_remove`, `not_invitee`, `not_inviter`, `cannot_manage_space`, `cannot_delete_space`, `room_not_open`, `agent_forbidden`, `wire_not_yours`, `not_recipient`, `not_sender`, `token_unverified`, `closed`, `room_key_required`, `room_key_public`, `sign_in_required`, `cross_site`, `forbidden` |
 | 404 | `not_connected`, `not_found`, `session_not_found`, `recipient_not_member`, `parent_not_found`, `space_not_found`, `task_not_found`, `item_not_found`, `wire_not_found` |
-| 409 | `token_limit`, `device_key_required`, `room_not_connected`, `already_member`, `invite_closed`, `not_member_by_invite`, `space_full`, `last_room`, `canvas_full`, `tracker_full`, `cannot_undo`, `items_full`, `already_wired`, `item_wired`, `duplicate`, `invalid_transition` |
+| 409 | `token_limit`, `device_key_required`, `room_not_connected`, `already_member`, `invite_closed`, `not_member_by_invite`, `space_full`, `room_in_space`, `last_room`, `canvas_full`, `tracker_full`, `cannot_undo`, `items_full`, `already_wired`, `item_wired`, `duplicate`, `invalid_transition` |
 | 410 | `room_deleted` |
 | 413, 415 | the body is too large; send JSON (`json_only`), or a picture that is PNG, JPEG or WebP (`unsupported_image`) |
 | 426 | `upgrade_required`: that address is a WebSocket |

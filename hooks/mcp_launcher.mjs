@@ -59,7 +59,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 // installer commits — it has no packer to stamp it — so it has to be moved with
 // the version bump; cli/test/package.test.mjs diffs the two installers and fails
 // if it drifts.
-const PINNED_VERSION = '0.14.0'; // agentmash:pin
+const PINNED_VERSION = '0.16.1'; // agentmash:pin
 const PACKAGE_SPEC = process.env.AGENTMASH_MCP_PACKAGE || `agentmash@${PINNED_VERSION}`;
 
 /**

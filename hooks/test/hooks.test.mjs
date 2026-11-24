@@ -147,6 +147,14 @@ function hookEnv(projectDir, port, extra = {}) {
 }
 
 /**
+ * A home of its own, for a test whose reports are meant not to arrive. The
+ * hooks keep such a report to send later (the outbox in lib.mjs), and one
+ * left in the home every other test here shares would be sent to a later
+ * test's server whenever that server was given the same port.
+ */
+const ownHome = () => ({ AGENTMASH_HOME: tempDir('agentmash-hooks-down-home-') });
+
+/**
  * The id a hook run with baseEnv gives the checkout at `dir`: made with the
  * key under baseEnv's AGENTMASH_HOME, which is where the hooks under test keep
  * theirs. (lib.mjs remembers the key once read, so this home is the one.)
@@ -526,7 +534,7 @@ test('session_end fails open when the server is down', async () => {
   const result = await runHook(
     'session_end.mjs',
     { session_id: 'sess-x', cwd: projectDir, hook_event_name: 'SessionEnd' },
-    hookEnv(projectDir, deadPort)
+    hookEnv(projectDir, deadPort, ownHome())
   );
   assert.equal(result.code, 0);
   assert.equal(result.stdout, '');
@@ -1051,13 +1059,14 @@ test('all hooks exit 0, fast and silent, when the server is down', async () => {
   await mock.close();
   const projectDir = makeProjectDir();
   const sessionId = freshSession();
+  const home = ownHome();
 
   for (const script of ['pre_tool_use.mjs', 'post_tool_use.mjs', 'user_prompt_submit.mjs']) {
     const stdin =
       script === 'user_prompt_submit.mjs'
         ? { session_id: sessionId, cwd: projectDir, prompt: 'do things' }
         : editStdin(projectDir, sessionId);
-    const result = await runHook(script, stdin, hookEnv(projectDir, deadPort));
+    const result = await runHook(script, stdin, hookEnv(projectDir, deadPort, home));
     assert.equal(result.code, 0, `${script} must exit 0 with the server down`);
     assert.equal(result.stdout, '', `${script} must stay silent with the server down`);
     assert.equal(result.stderr, '', `${script} must not write stderr with the server down`);
@@ -1077,7 +1086,7 @@ test('hooks abandon a slow server within their budget', async () => {
     assert.ok(advisory.elapsed < within(3000), `pre_tool_use waited ${advisory.elapsed}ms on a hung server`);
 
     // Reporting runs async in Claude Code, so it may wait longer — but still bounded.
-    const report = await runHook('post_tool_use.mjs', editStdin(projectDir, freshSession()), hookEnv(projectDir, mock.port));
+    const report = await runHook('post_tool_use.mjs', editStdin(projectDir, freshSession()), hookEnv(projectDir, mock.port, ownHome()));
     assert.equal(report.code, 0);
     assert.equal(report.stdout, '');
     assert.ok(report.elapsed < within(5000), `post_tool_use waited ${report.elapsed}ms on a hung server`);
